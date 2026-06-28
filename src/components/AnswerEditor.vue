@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onBeforeUnmount, nextTick } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { parseVariables } from '../utils/variables'
@@ -20,6 +20,17 @@ const emit = defineEmits(['save', 'cancel'])
 const form = ref({ ...props.modelValue })
 const dragOver = ref(false)
 const error = ref('')
+
+// Keep categoryId valid whenever categories list changes (e.g. on first load)
+watch(
+  () => props.categories,
+  (cats) => {
+    if (!cats.length) return
+    const valid = cats.some((c) => c._id === form.value.categoryId)
+    if (!valid) form.value.categoryId = cats[0]._id
+  },
+  { immediate: true }
+)
 
 function escapeHtml(text = '') {
   return text
@@ -165,27 +176,17 @@ function onSave() {
   const title = String(form.value.title || '').trim()
   const content = String(form.value.content || '').trim()
 
-  if (!title) {
-    error.value = '标题不能为空'
-    return
-  }
-  if (title.length > TITLE_MAX_LENGTH) {
-    error.value = `标题不能超过 ${TITLE_MAX_LENGTH} 个字符`
-    return
-  }
-  if (!content) {
-    error.value = '内容不能为空'
+  if (!title) { error.value = '标题不能为空'; return }
+  if (title.length > TITLE_MAX_LENGTH) { error.value = `标题不能超过 ${TITLE_MAX_LENGTH} 个字符`; return }
+  if (!content) { error.value = '内容不能为空'; return }
+  if (!props.categories.length) { error.value = '请先在管理界面创建至少一个分类'; return }
+  if (!props.categories.some((c) => c._id === form.value.categoryId)) {
+    error.value = '请选择一个有效的分类'
     return
   }
 
   error.value = ''
-
-  emit('save', {
-    ...form.value,
-    title,
-    content,
-    variables: parsedVars.value
-  })
+  emit('save', { ...form.value, title, content, variables: parsedVars.value })
 }
 </script>
 
@@ -199,7 +200,10 @@ function onSave() {
         <input v-model="form.title" class="input floating" />
       </div>
 
-      <select v-model="form.categoryId" class="input">
+      <div v-if="!props.categories.length" class="no-category-tip">
+        尚未创建任何分类，请先前往管理界面添加分类后再创建回复。
+      </div>
+      <select v-else v-model="form.categoryId" class="input">
         <option v-for="cat in props.categories" :key="cat._id" :value="cat._id">
           {{ cat.level === 2 ? '└ ' : '' }}{{ cat.icon }} {{ cat.name }}
         </option>
@@ -333,6 +337,16 @@ function onSave() {
 .img-item { position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; height: 88px; }
 .img-item img { width: 100%; height: 100%; object-fit: cover; }
 .x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: 0; border-radius: 50%; cursor: pointer; background: rgba(0,0,0,.6); color: white; }
+.no-category-tip {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.06);
+  color: #fbbf24;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .error { color: #f87171; margin-bottom: 8px; }
 .actions { display: flex; gap: 8px; }
 .btn { padding: 6px 10px; border: 0; border-radius: 4px; background: var(--accent); color: white; cursor: pointer; }

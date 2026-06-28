@@ -6,10 +6,10 @@ import SearchBar from '../components/SearchBar.vue'
 import CategorySidebar from '../components/CategorySidebar.vue'
 import AnswerList from '../components/AnswerList.vue'
 import VarFillModal from '../components/VarFillModal.vue'
-import ImageViewer from '../components/ImageViewer.vue'
+import CopyAssistant from '../components/CopyAssistant.vue'
 import { useAnswersStore } from '../stores/answers'
 import { useCategoriesStore } from '../stores/categories'
-import { parseVariables } from '../utils/variables'
+import { parseVariables, fillVariables } from '../utils/variables'
 import { copyFlow, insertFlow } from '../utils/clipboard'
 
 const router = useRouter()
@@ -20,8 +20,9 @@ const showVarModal = ref(false)
 const activeAnswer = ref(null)
 const pendingVars = ref([])
 const activeIndex = ref(0)
-const showImageViewer = ref(false)
-const imageQueue = ref([])
+const showCopyAssistant = ref(false)
+const assistantAnswer = ref(null)
+const assistantText = ref('')
 const copiedId = ref('')
 const toast = ref({ show: false, text: '', type: 'success' })
 const pendingDeleteCategory = ref(null)
@@ -128,8 +129,8 @@ function onEsc() {
     showVarModal.value = false
     return
   }
-  if (showImageViewer.value) {
-    showImageViewer.value = false
+  if (showCopyAssistant.value) {
+    showCopyAssistant.value = false
     return
   }
   if (query.value) {
@@ -238,36 +239,44 @@ function confirmRemoveCategory() {
   showToast(`已删除分类，并迁移 ${affected} 条回复到「${targetName}」`)
 }
 
-async function triggerCopy(answer) {
-  const vars = parseVariables(answer.content || '')
-  if (vars.length > 0) {
-    pendingVars.value = vars
+async function triggerCopy(answer, vars = {}) {
+  // If answer has images, open CopyAssistant (user controls the copy sequence)
+  if (answer.images?.length) {
+    assistantAnswer.value = answer
+    assistantText.value = fillVariables(answer.content || '', vars)
+    showCopyAssistant.value = true
+    return
+  }
+
+  // No images: copy text immediately (original flow)
+  const varNames = parseVariables(answer.content || '')
+  if (varNames.length > 0 && Object.keys(vars).length === 0) {
+    pendingVars.value = varNames
     activeAnswer.value = answer
     showVarModal.value = true
     return
   }
 
   try {
-    await copyFlow(answer)
+    await copyFlow(answer, vars)
     copiedId.value = answer._id
     if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => {
-      copiedId.value = ''
-    }, 1200)
+    copiedTimer = setTimeout(() => { copiedId.value = '' }, 1200)
     showToast('复制成功')
+    window.preload?.hideMainWindow?.()
   } catch {
     showToast('复制失败，请重试', 'error')
-    return
-  }
-
-  if (answer.images?.length) {
-    imageQueue.value = answer.images
-    showImageViewer.value = true
-    showToast('文字已复制，请逐张复制图片')
   }
 }
 
 async function onCopy(answer) {
+  const varNames = parseVariables(answer.content || '')
+  if (varNames.length > 0) {
+    pendingVars.value = varNames
+    activeAnswer.value = answer
+    showVarModal.value = true
+    return
+  }
   await triggerCopy(answer)
 }
 
@@ -345,26 +354,10 @@ async function onConfirmVars(values) {
     return
   }
 
-  try {
-    await copyFlow(activeAnswer.value, values)
-    copiedId.value = activeAnswer.value._id
-    if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => {
-      copiedId.value = ''
-    }, 1200)
-    showVarModal.value = false
-    showToast('复制成功')
-  } catch {
-    showToast('复制失败，请重试', 'error')
-    return
-  }
-
-  if (activeAnswer.value.images?.length) {
-    imageQueue.value = activeAnswer.value.images
-    showImageViewer.value = true
-    showToast('文字已复制，请逐张复制图片')
-  }
+  showVarModal.value = false
+  const answer = activeAnswer.value
   activeAnswer.value = null
+  await triggerCopy(answer, values)
 }
 </script>
 
@@ -464,7 +457,12 @@ async function onConfirmVars(values) {
       @cancel="showVarModal = false"
     />
 
-    <ImageViewer :show="showImageViewer" :images="imageQueue" @close="showImageViewer = false" />
+    <CopyAssistant
+      :show="showCopyAssistant"
+      :answer="assistantAnswer"
+      :filled-text="assistantText"
+      @close="showCopyAssistant = false"
+    />
 
     <div v-if="pendingDeleteCategory" class="confirm-mask">
       <div class="confirm-card">
