@@ -1,0 +1,108 @@
+---
+description: Vue 组件编写规范与代码质量要求
+globs: ["src/**/*.vue", "src/**/*.js"]
+alwaysApply: false
+---
+
+# Vue 组件规范与代码质量
+
+## 组件结构顺序
+
+```vue
+<script setup>
+// 1. 导入
+// 2. Props / Emits 定义
+// 3. Store 注入
+// 4. 响应式数据
+// 5. 计算属性
+// 6. 方法
+// 7. 生命周期钩子
+</script>
+
+<template>
+  <!-- 根元素只有一个 -->
+</template>
+
+<style scoped>
+/* 全部使用 scoped，避免样式污染 */
+/* 使用 CSS Variables，不要硬编码颜色值 */
+</style>
+```
+
+## Props 规范
+
+```js
+// ✅ 正确：明确类型和默认值
+const props = defineProps({
+  answer: { type: Object, required: true },
+  isSelected: { type: Boolean, default: false },
+})
+
+// ❌ 错误：不写类型
+const props = defineProps(['answer', 'isSelected'])
+```
+
+## Emit 规范
+
+```js
+const emit = defineEmits(['copy', 'select', 'edit'])
+// 触发时传递必要数据
+emit('copy', answer._id)
+```
+
+## 异步操作规范
+
+```js
+// 统一用 async/await，不混用 .then()
+// 操作前设置 loading 状态，操作后清除
+const loading = ref(false)
+
+async function handleSave() {
+  loading.value = true
+  try {
+    await AnswerDB.save(answer.value)
+    emit('saved')
+  } catch (err) {
+    console.error('保存失败', err)
+    // 显示错误提示
+  } finally {
+    loading.value = false
+  }
+}
+```
+
+## 禁止事项
+
+- ❌ 不在组件内直接操作 `window.preload.db`，必须通过 `utils/db.js` 封装
+- ❌ 不在 `<template>` 中写复杂逻辑，提取为 computed 或方法
+- ❌ 不使用 `any` 类型（如果后续引入 TypeScript）
+- ❌ 不硬编码颜色值（如 `color: #3b82f6`），使用 `var(--accent)`
+- ❌ 不在 setup 外使用 `ref` / `reactive`
+
+## 性能注意事项
+
+- 答案列表超过 50 条时，使用虚拟滚动（Naive UI 的 `n-virtual-list`）
+- 图片 dataUrl 不要直接放入 `v-for` 的计算属性，避免重复 base64 解码
+- Fuse.js 实例在搜索词变化时复用，不要每次 new
+
+## 错误边界
+
+在 `App.vue` 中注册全局错误处理：
+
+```js
+app.config.errorHandler = (err, instance, info) => {
+  console.error('[全局错误]', err, info)
+  // 可在此展示一个 toast 提示
+}
+```
+
+## 开发调试约定
+
+- 所有 `console.log` 调试语句在提交前清除，改用 `utools.isDev()` 守卫：
+  ```js
+  if (window.preload.isDev()) console.log('[debug]', data)
+  ```
+- 组件文件名：大驼峰（`AnswerCard.vue`）
+- 工具函数文件名：小驼峰（`clipboard.js`）
+- Store 文件名：小驼峰（`answers.js`）
+

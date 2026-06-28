@@ -1,0 +1,144 @@
+---
+description: uTools 平台集成规范（plugin.json、preload、生命周期）
+globs: ["plugin.json", "preload.js", "src/App.vue", "src/main.js"]
+alwaysApply: false
+---
+
+# uTools 平台集成规范
+
+## plugin.json 配置
+
+```json
+{
+  "pluginName": "快捷回复",
+  "description": "客服快捷回复管理，快速查找并复制常用答案",
+  "main": "index.html",
+  "version": "1.0.0",
+  "logo": "public/logo.png",
+  "preload": "preload.js",
+  "features": [
+    {
+      "code": "main",
+      "explain": "打开快捷回复面板",
+      "cmds": ["快捷回复", "客服回复", "reply"]
+    },
+    {
+      "code": "admin",
+      "explain": "管理回复内容",
+      "cmds": ["管理回复", "reply-admin"]
+    }
+  ]
+}
+```
+
+## preload.js 完整模板
+
+```js
+// preload.js - 在 Node.js 环境运行，不可使用 DOM API
+const { contextBridge } = require('electron')
+
+contextBridge.exposeInMainWorld('preload', {
+  db: {
+    get: (id) => utools.db.get(id),
+    put: (doc) => utools.db.put(doc),
+    remove: (id) => {
+      const doc = utools.db.get(id)
+      if (doc) return utools.db.remove(doc._id)
+    },
+    allDocs: (prefix) => utools.db.allDocs(prefix),
+  },
+  hideMainWindow: () => utools.hideMainWindow(),
+  showMainWindow: () => utools.showMainWindow(),
+  isDev: () => utools.isDev(),
+})
+```
+
+## App.vue 路由初始化
+
+```js
+// uTools feature code 决定初始路由
+onMounted(() => {
+  utools.onPluginEnter(({ code }) => {
+    if (code === 'admin') {
+      router.replace('/admin')
+    } else {
+      router.replace('/')
+    }
+  })
+})
+```
+
+## 生命周期钩子使用规范
+
+| 钩子 | 用途 |
+|------|------|
+| `utools.onPluginEnter` | 插件唤起时：重置搜索框、重新聚焦 |
+| `utools.onPluginOut` | 插件隐藏时：清空搜索词、关闭所有弹窗 |
+| `utools.onPluginDetach` | 插件卸载时：保存未完成的编辑草稿 |
+
+## Router 配置
+
+```js
+// src/router/index.js
+import { createRouter, createWebHashHistory } from 'vue-router'
+
+// 必须使用 hash 模式，file:// 协议不支持 history 模式
+export default createRouter({
+  history: createWebHashHistory(),
+  routes: [
+    { path: '/', component: () => import('../pages/Main.vue') },
+    { path: '/admin', component: () => import('../pages/Admin.vue') },
+  ]
+})
+```
+
+## Vite 配置要点
+
+```js
+// vite.config.js
+export default {
+  base: './',  // 必须是相对路径，uTools 加载本地 HTML
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      // 不要将 preload.js 打包进去
+      external: []
+    }
+  }
+}
+```
+
+## 注意事项
+
+- `utools` 全局对象只在 preload.js 和渲染进程中（通过 `window.preload` 暴露后）可用
+- 开发时（`utools.isDev()` 为 true）可 mock `window.preload` 进行本地调试
+- 不要在 preload.js 中使用 `require('fs')` 等 Node 模块操作用户文件系统，数据统一通过 uTools db 存储
+- 插件窗口尺寸建议：宽 720px，高 480px（在 plugin.json 中可不设置，uTools 默认弹窗大小）
+
+## 本地开发 Mock
+
+```js
+// src/utils/mock-preload.js（仅开发环境使用）
+if (!window.preload) {
+  const store = {}
+  window.preload = {
+    db: {
+      get: (id) => store[id] || null,
+      put: (doc) => { store[doc._id] = doc; return doc },
+      remove: (id) => { delete store[id] },
+      allDocs: (prefix) => Object.values(store)
+        .filter(d => d._id?.startsWith(prefix))
+        .map(doc => ({ doc }))
+    },
+    hideMainWindow: () => console.log('[mock] hide window'),
+    showMainWindow: () => console.log('[mock] show window'),
+    isDev: () => true,
+  }
+}
+```
+
+在 `main.js` 开头引入：
+```js
+import './utils/mock-preload.js'
+```
+

@@ -1,0 +1,96 @@
+---
+description: 数据结构与 uTools DB 操作规范
+globs: ["src/utils/db.js", "src/stores/**/*.js", "preload.js"]
+alwaysApply: false
+---
+
+# 数据层规范
+
+## 数据模型
+
+### 分类（Category）
+```js
+{
+  _id: 'cat_uuid',        // uTools db 主键，前缀 cat_
+  type: 'category',
+  name: '售后处理',
+  icon: '🔄',             // emoji 图标
+  order: 0,               // 排序权重
+  createdAt: 'ISO 8601'
+}
+```
+
+### 答案（Answer）
+```js
+{
+  _id: 'ans_uuid',        // uTools db 主键，前缀 ans_
+  type: 'answer',
+  title: '退款申请流程',   // 搜索标题
+  categoryId: 'cat_uuid',
+  tags: ['退款', '售后'],  // 搜索标签
+  content: '您好 {{客户姓名}}，您的退款...',  // 纯文本，支持变量占位符
+  variables: ['客户姓名'], // 从 content 中解析出的变量名列表
+  images: [               // 图片列表，base64 存储
+    { id: 'img_uuid', name: '流程图.png', dataUrl: 'data:image/png;base64,...' }
+  ],
+  useCount: 0,            // 使用次数，用于排序
+  updatedAt: 'ISO 8601',
+  createdAt: 'ISO 8601'
+}
+```
+
+> ⚠️ **图片大小限制**：uTools db 单条记录上限 **1MB**。图片多时，将图片 dataUrl 拆分为独立记录（`_id: 'img_uuid'`，`type: 'image'`），Answer 中只存图片 id 引用。
+
+## preload.js 必须暴露的接口
+
+```js
+// preload.js（运行在 Node 环境，通过 window.preload 暴露给渲染进程）
+window.preload = {
+  db: {
+    // 基础 CRUD
+    get: (id) => utools.db.get(id),
+    put: (doc) => utools.db.put(doc),
+    remove: (id) => utools.db.remove(id),
+    // 批量查询（按 type 过滤）
+    allDocs: (prefix) => utools.db.allDocs(prefix),
+  },
+  // 插件窗口控制
+  hideMainWindow: () => utools.hideMainWindow(),
+  showMainWindow: () => utools.showMainWindow(),
+}
+```
+
+## db.js 封装规范
+
+```js
+// src/utils/db.js
+const db = window.preload.db
+
+export const AnswerDB = {
+  getAll: () => db.allDocs('ans_').map(r => r.doc),
+  get: (id) => db.get(id),
+  save: (answer) => db.put({ ...answer, updatedAt: new Date().toISOString() }),
+  remove: (id) => {
+    const doc = db.get(id)
+    db.remove(doc._id)
+  },
+  incrementUseCount: (id) => {
+    const doc = db.get(id)
+    db.put({ ...doc, useCount: (doc.useCount || 0) + 1 })
+  }
+}
+
+export const CategoryDB = {
+  getAll: () => db.allDocs('cat_').map(r => r.doc),
+  save: (cat) => db.put(cat),
+  remove: (id) => db.remove(id)
+}
+```
+
+## Pinia Store 规范
+
+- **answers.js**：加载所有答案，维护搜索结果列表，提供 `copyAnswer(id)` action
+- **categories.js**：加载所有分类，提供当前选中分类状态
+- Store 只在 `App.vue` 的 `onMounted` 中初始化加载一次
+- 写操作先更新 db，再更新 store 内存状态（不重新全量加载）
+

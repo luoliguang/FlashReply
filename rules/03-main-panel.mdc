@@ -1,0 +1,151 @@
+---
+description: 主面板交互规范（搜索、列表、复制流程）
+globs: ["src/pages/Main.vue", "src/components/SearchBar.vue", "src/components/AnswerList.vue", "src/components/AnswerCard.vue", "src/components/VarFillModal.vue", "src/components/ImageViewer.vue", "src/utils/search.js", "src/utils/clipboard.js", "src/utils/variables.js"]
+alwaysApply: false
+---
+
+# 主面板交互规范
+
+## 整体布局
+
+```
+┌─────────────────────────────────────────┐
+│  [🔍 搜索框 - 全宽，自动聚焦]            │
+├──────────┬──────────────────────────────┤
+│ 分类侧栏  │  答案列表                    │
+│ （120px） │  （剩余宽度）                │
+│           │  ┌────────────────────────┐ │
+│ 全部       │  │ AnswerCard            │ │
+│ 售后       │  │ title + tags + 复制按钮 │ │
+│ 退款       │  └────────────────────────┘ │
+│ ...        │  ┌────────────────────────┐ │
+│           │  │ AnswerCard            │ │
+│           │  └────────────────────────┘ │
+└──────────┴──────────────────────────────┘
+```
+
+## SearchBar.vue 规范
+
+```vue
+<!-- 关键行为 -->
+- onMounted: el.focus()                          // 插件唤起立即聚焦
+- @keydown.down: 选中列表第一项
+- @keydown.esc: utools.hideMainWindow()
+- v-model 实时触发 Fuse.js 搜索（无防抖，追求即时响应）
+- 搜索词清空时恢复按 useCount 排序的完整列表
+```
+
+## 搜索逻辑（search.js）
+
+```js
+import Fuse from 'fuse.js'
+
+const FUSE_OPTIONS = {
+  keys: [
+    { name: 'title', weight: 0.6 },
+    { name: 'tags', weight: 0.3 },
+    { name: 'content', weight: 0.1 },
+  ],
+  threshold: 0.35,     // 模糊程度，0 最严格，1 最宽松
+  minMatchCharLength: 1,
+}
+
+// 搜索词为空时按 useCount 降序返回全部
+export function searchAnswers(answers, query) {
+  if (!query.trim()) {
+    return [...answers].sort((a, b) => b.useCount - a.useCount)
+  }
+  const fuse = new Fuse(answers, FUSE_OPTIONS)
+  return fuse.search(query).map(r => r.item)
+}
+```
+
+## AnswerCard.vue 规范
+
+每张卡片展示：
+- 标题（加粗）
+- 标签列（彩色小 badge）
+- 内容预览（最多 2 行截断，overflow: hidden）
+- 右侧：「复制」按钮 + 图片数量 badge（有图才显示）
+
+点击「复制」按钮或按 `Enter` 键时触发 `copyFlow(answer)`。
+
+## 复制流程（clipboard.js）
+
+```js
+// 完整复制流程
+export async function copyFlow(answer) {
+  const { content, variables, images } = answer
+
+  // Step 1: 有变量 → 弹出 VarFillModal，等待用户填写
+  let finalText = content
+  if (variables.length > 0) {
+    finalText = await openVarFillModal(variables, content)
+    if (finalText === null) return  // 用户取消
+  }
+
+  // Step 2: 复制文字到剪贴板
+  await navigator.clipboard.writeText(finalText)
+
+  // Step 3: 增加使用计数
+  answersStore.incrementUseCount(answer._id)
+
+  // Step 4: 有图片 → 展示 ImageViewer，用户逐张点击复制
+  if (images.length > 0) {
+    openImageViewer(images)
+  } else {
+    // 无图片，直接隐藏插件
+    window.preload.hideMainWindow()
+  }
+}
+
+// 复制单张图片（供 ImageViewer 调用）
+export async function copyImage(dataUrl) {
+  const res = await fetch(dataUrl)
+  const blob = await res.blob()
+  await navigator.clipboard.write([
+    new ClipboardItem({ [blob.type]: blob })
+  ])
+}
+```
+
+## VarFillModal.vue 规范
+
+- 弹窗形式，遮罩层
+- 每个变量一个 input，label 为变量名
+- 第一个 input 自动聚焦
+- 「确认复制」/ 「取消」按钮
+- 使用 Promise resolve/reject 与 copyFlow 异步通信
+
+## ImageViewer.vue 规范
+
+- 复制完文字后，以底部浮动栏或弹窗展示所有图片缩略图
+- 每张图片下方显示「点击复制」
+- 复制成功后该图片显示 ✅ 标记
+- 全部图片复制完毕后，自动隐藏插件窗口
+
+## 键盘导航规范
+
+| 按键 | 行为 |
+|------|------|
+| 输入字符 | 搜索过滤 |
+| ↓ | 焦点移到列表第一项 |
+| ↑ / ↓ | 在列表项间移动 |
+| Enter | 触发当前选中项的复制流程 |
+| Esc | 清空搜索词 / 关闭插件 |
+
+## variables.js 规范
+
+```js
+// 从 content 中解析变量名
+export function parseVariables(content) {
+  const matches = content.match(/\{\{(.+?)\}\}/g) || []
+  return [...new Set(matches.map(m => m.slice(2, -2).trim()))]
+}
+
+// 替换变量
+export function fillVariables(content, vars = {}) {
+  return content.replace(/\{\{(.+?)\}\}/g, (_, key) => vars[key.trim()] ?? '')
+}
+```
+

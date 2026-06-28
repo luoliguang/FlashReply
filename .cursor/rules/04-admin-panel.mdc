@@ -1,0 +1,135 @@
+---
+description: 管理后台规范（答案增删改、分类管理）
+globs: ["src/pages/Admin.vue", "src/components/AnswerEditor.vue", "src/components/CategorySidebar.vue"]
+alwaysApply: false
+---
+
+# 管理后台规范
+
+## 整体布局
+
+```
+┌─────────────────────────────────────────────────────┐
+│  顶部栏：「← 返回主面板」   标题   「+ 新建答案」    │
+├───────────┬─────────────────────────────────────────┤
+│ 分类管理   │  答案列表（表格形式）                   │
+│ （180px）  │  标题 | 分类 | 标签 | 使用次数 | 操作   │
+│           │                                         │
+│ [+ 新建]  │  AnswerCard（管理视图，含编辑/删除按钮）  │
+│ 全部       │                                         │
+│ 售后 ✏️🗑  │                                         │
+│ 退款 ✏️🗑  │                                         │
+└───────────┴─────────────────────────────────────────┘
+```
+
+## AnswerEditor.vue 规范（新建/编辑答案）
+
+以抽屉（Drawer）或全页弹窗展示，包含以下字段：
+
+### 表单字段
+
+| 字段 | 组件 | 说明 |
+|------|------|------|
+| 标题 | NInput | 必填，用于搜索 |
+| 分类 | NSelect | 从 categories store 获取选项 |
+| 标签 | NDynamicTags | 可自由添加多个标签 |
+| 内容 | Tiptap 编辑器 | 支持变量占位符语法 |
+| 图片 | 自定义上传组件 | 见下方图片处理规范 |
+
+### Tiptap 编辑器配置
+
+```js
+// 只需基础功能，不需要复杂富文本
+import { useEditor } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+
+const editor = useEditor({
+  extensions: [StarterKit],
+  // content 是纯文本，变量用 {{变量名}} 标注
+})
+```
+
+> ⚠️ Tiptap 存储 HTML，但答案 content 字段存纯文本（strip HTML tags），变量占位符 `{{xxx}}` 在纯文本层处理。编辑器仅用于提供更好的输入体验，最终存储的是 `editor.getText()`。
+
+### 变量实时预览
+
+内容输入框下方实时展示识别到的变量列表：
+```
+已识别变量：[客户姓名] [订单号]
+```
+用 `parseVariables(content)` 实时计算并自动同步到 `answer.variables`。
+
+## 图片上传处理规范
+
+```vue
+<!-- 图片上传组件核心逻辑 -->
+<input type="file" accept="image/*" multiple @change="handleUpload" />
+
+<script setup>
+async function handleUpload(e) {
+  for (const file of e.target.files) {
+    // 压缩超过 300KB 的图片
+    const compressed = file.size > 300 * 1024
+      ? await compressImage(file, 0.7)
+      : file
+    const dataUrl = await fileToDataUrl(compressed)
+    answer.images.push({ id: uuid(), name: file.name, dataUrl })
+  }
+}
+
+// Canvas 压缩
+async function compressImage(file, quality) {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.src = URL.createObjectURL(file)
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      canvas.getContext('2d').drawImage(img, 0, 0)
+      canvas.toBlob(blob => resolve(blob), 'image/jpeg', quality)
+    }
+  })
+}
+</script>
+```
+
+图片上传后以缩略图预览展示，每张图片右上角有 ✕ 删除按钮。
+
+## 保存逻辑
+
+```js
+async function saveAnswer() {
+  // 表单校验
+  if (!answer.title.trim()) return showError('标题不能为空')
+
+  // 自动解析变量
+  answer.variables = parseVariables(answer.content)
+
+  // 新建 or 更新
+  if (!answer._id) {
+    answer._id = `ans_${uuid()}`
+    answer.createdAt = new Date().toISOString()
+    answer.useCount = 0
+  }
+  answer.updatedAt = new Date().toISOString()
+
+  // 检查数据大小（图片导致的大小风险）
+  const size = new Blob([JSON.stringify(answer)]).size
+  if (size > 900 * 1024) {
+    showError('数据过大（超过 900KB），请减少图片数量或压缩图片')
+    return
+  }
+
+  await AnswerDB.save(answer)
+  answersStore.reload()
+  closeDrawer()
+}
+```
+
+## 分类管理规范
+
+- 分类支持增删改、排序（拖拽或上下箭头）
+- 删除分类时：若该分类下有答案，弹出确认框，确认后将答案移至「未分类」
+- 分类颜色/emoji 可自定义
+

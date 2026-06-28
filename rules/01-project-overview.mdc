@@ -1,0 +1,71 @@
+---
+description: uTools 客服快捷回复插件 - 项目总览与架构规范
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# 项目总览：uTools 客服快捷回复插件
+
+## 项目定位
+
+一款运行在 uTools 平台的快捷回复插件，专为客服场景设计。核心价值：**在最短时间内找到并复制对应的答案（含图片）**。
+
+## 技术栈
+
+- **框架**: Vue 3 + Vite
+- **状态管理**: Pinia
+- **UI 组件库**: Naive UI
+- **富文本编辑器**: Tiptap（@tiptap/vue-3）
+- **模糊搜索**: Fuse.js
+- **唯一 ID**: uuid
+- **样式方案**: CSS Variables + Scoped CSS（不使用 Tailwind）
+
+## 项目目录结构
+
+```
+├── plugin.json                  # uTools 插件配置
+├── preload.js                   # uTools preload 脚本（Node 环境）
+├── index.html
+├── src/
+│   ├── main.js
+│   ├── App.vue                  # 根组件，路由入口
+│   ├── router/
+│   │   └── index.js             # vue-router（hash 模式）
+│   ├── stores/
+│   │   ├── answers.js           # 答案数据 store
+│   │   └── categories.js        # 分类数据 store
+│   ├── pages/
+│   │   ├── Main.vue             # 主面板（搜索 + 列表 + 复制）
+│   │   └── Admin.vue            # 管理后台（增删改）
+│   ├── components/
+│   │   ├── SearchBar.vue        # 搜索框组件
+│   │   ├── AnswerList.vue       # 答案列表
+│   │   ├── AnswerCard.vue       # 单条答案卡片
+│   │   ├── AnswerEditor.vue     # 答案编辑器（含 Tiptap）
+│   │   ├── VarFillModal.vue     # 变量填写弹窗
+│   │   ├── ImageViewer.vue      # 图片预览与逐张复制
+│   │   └── CategorySidebar.vue  # 分类侧边栏
+│   └── utils/
+│       ├── db.js                # uTools db 封装
+│       ├── clipboard.js         # 剪贴板操作（文字 + 图片）
+│       ├── search.js            # Fuse.js 搜索封装
+│       └── variables.js         # 变量解析与替换
+└── public/
+    └── logo.png
+```
+
+## 两大核心页面
+
+| 页面 | 路由 | 功能 |
+|------|------|------|
+| Main.vue | `/` | 搜索、浏览、一键复制，日常使用界面 |
+| Admin.vue | `/admin` | 增删改答案和分类，配置界面 |
+
+## 关键原则
+
+1. **Main 页面优先**：日常使用频率最高，交互必须极致流畅
+2. **搜索框自动聚焦**：插件唤起后立即可打字，无需额外点击
+3. **键盘优先**：支持方向键选择列表项，Enter 触发复制，Esc 关闭插件
+4. **图文分离复制**：微信不支持同时粘贴图文，文字先复制，图片以缩略图展示供逐张复制
+5. **数据本地存储**：全部存在 uTools db，不依赖外部服务
+
