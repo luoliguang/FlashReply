@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Plus } from 'lucide-vue-next'
+import { ArrowLeft, Plus, GripVertical, ChevronRight } from 'lucide-vue-next'
+import { getTagColor } from '../utils/tag-color'
 import { useAnswersStore } from '../stores/answers'
 import { useCategoriesStore } from '../stores/categories'
 import AnswerEditor from '../components/AnswerEditor.vue'
@@ -46,6 +47,15 @@ const importStats = ref({
 })
 
 let toastTimer = null
+let deleteTimer = null
+const pendingDeleteId = ref('')
+const expandedIds = ref([])
+
+function toggleExpand(id) {
+  const idx = expandedIds.value.indexOf(id)
+  if (idx >= 0) expandedIds.value.splice(idx, 1)
+  else expandedIds.value.push(id)
+}
 
 function showToast(text, type = 'success') {
   toast.value = { show: true, text, type }
@@ -130,6 +140,23 @@ function removeAnswer(id) {
   answersStore.removeAnswer(id)
   selectedIds.value = selectedIds.value.filter((itemId) => itemId !== id)
   showToast('答案已删除')
+}
+
+function startDelete(id) {
+  if (pendingDeleteId.value === id) {
+    clearTimeout(deleteTimer)
+    pendingDeleteId.value = ''
+    removeAnswer(id)
+    return
+  }
+  pendingDeleteId.value = id
+  clearTimeout(deleteTimer)
+  deleteTimer = setTimeout(() => { pendingDeleteId.value = '' }, 3000)
+}
+
+function tagStyle(tag) {
+  const palette = getTagColor(tag)
+  return { '--tag-bg': palette.bg, '--tag-color': palette.color }
 }
 
 function handleAddCategory(payload) {
@@ -446,45 +473,124 @@ function closeImportDialog() {
       </div>
 
       <section class="table-wrap">
+        <!-- 搜索栏 -->
         <div class="toolbar">
-          <input v-model="searchText" class="search-input" placeholder="按标题/内容/标签/分类搜索" />
+          <input v-model="searchText" class="search-input" placeholder="按标题 / 内容 / 标签 / 分类搜索" />
           <select v-model="filterCategoryId" class="search-select">
             <option value="all">全部分类</option>
             <option v-for="cat in allCategoryOptions" :key="cat._id" :value="cat._id">{{ categoryLabel(cat) }}</option>
           </select>
         </div>
 
-        <div class="batch-panel">
-          <label class="select-all"><input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)" />已选 {{ selectedCount }} 条</label>
-          <select v-model="batchCategoryId" class="batch-input">
-            <option value="">批量修改分类...</option>
-            <option v-for="cat in allCategoryOptions" :key="`batch-${cat._id}`" :value="cat._id">{{ categoryLabel(cat) }}</option>
-          </select>
-          <button class="btn ghost" @click="batchMoveCategory">应用分类</button>
-          <input v-model="batchTagInput" class="batch-input" placeholder="标签，逗号分隔" />
-          <button class="btn ghost" @click="batchAddTags">批量加标签</button>
-          <button class="btn ghost" @click="batchRemoveTags">批量删标签</button>
-          <button class="btn ghost" @click="batchDuplicate">批量复制副本</button>
-          <button class="btn danger" @click="batchDelete">批量删除</button>
+        <!-- 全选行 + 选中后展开的操作栏 -->
+        <div class="batch-header">
+          <label class="select-all checkbox-wrap">
+            <input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)" />
+            <span class="checkbox-box" />
+            <span class="select-count">{{ selectedCount > 0 ? `已选 ${selectedCount} 条` : `共 ${filteredList.length} 条` }}</span>
+          </label>
+
+          <!-- 选中后才展开的操作区 -->
+          <transition name="batch-slide">
+            <div v-if="selectedCount > 0" class="batch-actions">
+              <!-- 分类移动 -->
+              <div class="batch-group">
+                <select v-model="batchCategoryId" class="batch-select">
+                  <option value="">移动到分类…</option>
+                  <option v-for="cat in allCategoryOptions" :key="`batch-${cat._id}`" :value="cat._id">{{ categoryLabel(cat) }}</option>
+                </select>
+                <button class="btn ghost sm" @click="batchMoveCategory">应用</button>
+              </div>
+              <!-- 标签管理 -->
+              <div class="batch-group">
+                <input v-model="batchTagInput" class="batch-tag-input" placeholder="标签，逗号分隔" />
+                <button class="btn ghost sm" @click="batchAddTags">+ 标签</button>
+                <button class="btn ghost sm" @click="batchRemoveTags">- 标签</button>
+              </div>
+              <!-- 其他操作 -->
+              <div class="batch-group">
+                <button class="btn ghost sm" @click="batchDuplicate">复制副本</button>
+                <button class="btn danger sm" @click="batchDelete">删除</button>
+              </div>
+            </div>
+          </transition>
         </div>
 
+        <!-- 数据表格 -->
         <section class="table">
-          <div class="row head"><div>选择</div><div>标题</div><div>分类</div><div>标签</div><div>使用次数</div><div>操作</div></div>
+          <div class="row head">
+            <div class="col-drag" />
+            <div class="col-check" />
+            <div class="col-title">标题</div>
+            <div class="col-cat">分类</div>
+            <div class="col-tags">标签</div>
+            <div class="col-count">次数</div>
+            <div class="col-ops">操作</div>
+          </div>
+
           <div
             v-for="item in filteredList"
             :key="item._id"
-            class="row"
-            draggable="true"
-            @dragstart="onAnswerDragStart(item, $event)"
-            @dragover.prevent
-            @drop="onAnswerDropOnRow(item, $event)"
+            class="row-wrap"
+            :class="{ 'row-expanded': expandedIds.includes(item._id) }"
           >
-            <div><input type="checkbox" :checked="selectedIds.includes(item._id)" @change="toggleOne(item._id, $event.target.checked)" /></div>
-            <div>{{ item.title }}</div>
-            <div>{{ categoriesStore.list.find((c) => c._id === item.categoryId)?.name || '未分类' }}</div>
-            <div>{{ (item.tags || []).join(' / ') }}</div>
-            <div>{{ item.useCount || 0 }}</div>
-            <div class="ops"><button class="btn ghost" @click="editAnswer(item)">编辑</button><button class="btn danger" @click="removeAnswer(item._id)">删除</button></div>
+            <div
+              class="row"
+              :class="{ selected: selectedIds.includes(item._id) }"
+              draggable="true"
+              @dragstart="onAnswerDragStart(item, $event)"
+              @dragover.prevent
+              @drop="onAnswerDropOnRow(item, $event)"
+            >
+              <!-- 拖拽手柄 -->
+              <div class="col-drag drag-handle">
+                <GripVertical :size="14" />
+              </div>
+              <!-- 复选框 -->
+              <div class="col-check">
+                <label class="checkbox-wrap">
+                  <input type="checkbox" :checked="selectedIds.includes(item._id)" @change="toggleOne(item._id, $event.target.checked)" />
+                  <span class="checkbox-box" />
+                </label>
+              </div>
+              <!-- 标题（可点击展开内容预览） -->
+              <div class="col-title row-title" @click.stop="toggleExpand(item._id)">
+                <ChevronRight :size="11" class="expand-icon" />
+                <span class="title-text">{{ item.title }}</span>
+              </div>
+              <!-- 分类 -->
+              <div class="col-cat row-cat">{{ categoriesStore.list.find((c) => c._id === item.categoryId)?.name || '未分类' }}</div>
+              <!-- 标签 -->
+              <div class="col-tags row-tags">
+                <span v-for="tag in (item.tags || [])" :key="tag" class="tag-chip" :style="tagStyle(tag)">{{ tag }}</span>
+              </div>
+              <!-- 使用次数 -->
+              <div class="col-count">{{ item.useCount || 0 }}</div>
+              <!-- 操作 -->
+              <div class="col-ops ops">
+                <button class="btn ghost sm" @click="editAnswer(item)">编辑</button>
+                <button
+                  class="btn sm"
+                  :class="pendingDeleteId === item._id ? 'danger-confirm' : 'danger'"
+                  @click="startDelete(item._id)"
+                >
+                  {{ pendingDeleteId === item._id ? '确认?' : '删除' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 内容预览（点击标题展开） -->
+            <transition name="content-expand">
+              <div v-if="expandedIds.includes(item._id)" class="row-preview">
+                <div class="row-preview-inner">{{ item.content || '（无内容）' }}</div>
+              </div>
+            </transition>
+          </div>
+
+          <!-- 空状态 -->
+          <div v-if="filteredList.length === 0" class="empty-state">
+            <p>{{ searchText ? `没有匹配「${searchText}」的回复` : '该分类下暂无回复' }}</p>
+            <button class="btn" @click="newAnswer"><Plus :size="13" />新建回复</button>
           </div>
         </section>
       </section>
@@ -544,52 +650,459 @@ function closeImportDialog() {
 </template>
 
 <style scoped>
-.admin-layout { padding: 12px; height: 100vh; box-sizing: border-box; background: var(--bg-base); color: var(--text-primary); }
-.top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; margin-bottom: 10px; gap: 8px; }
-.top .title { justify-self: center; font-weight: 600; }
+/* ── Keyframes ──────────────────────────────────────────────── */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes confirm-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes danger-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  60%  { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.admin-layout {
+  padding: 12px;
+  height: 100vh;
+  box-sizing: border-box;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+.top {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.top .title { justify-self: center; font-weight: 600; letter-spacing: 0.01em; }
 .back-btn, .create-btn { width: fit-content; display: inline-flex; align-items: center; gap: 5px; }
 .top-actions { display: inline-flex; gap: 6px; align-items: center; }
-.panel { display: grid; grid-template-columns: minmax(180px, var(--admin-sidebar-width, 280px)) 1fr; gap: 10px; height: calc(100% - 56px); min-height: 0; }
+.panel {
+  display: grid;
+  grid-template-columns: minmax(180px, var(--admin-sidebar-width, 280px)) 1fr;
+  gap: 10px;
+  height: calc(100% - 56px);
+  min-height: 0;
+}
 .category-wrap { position: relative; min-height: 0; }
 .category-panel { height: 100%; }
-.resize-handle { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: col-resize; z-index: 5; }
-.resize-handle::after { content: ''; position: absolute; left: 5px; top: 0; width: 2px; height: 100%; background: transparent; transition: background 0.15s ease; }
+.resize-handle {
+  position: absolute; top: 0; right: -6px;
+  width: 12px; height: 100%;
+  cursor: col-resize; z-index: 5;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute; left: 5px; top: 10%; width: 2px; height: 80%;
+  background: transparent;
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
 .resize-handle:hover::after { background: var(--accent); }
-.table-wrap { display: grid; grid-template-rows: auto auto 1fr; gap: 8px; min-height: 0; }
+
+/* ── Table wrap ─────────────────────────────────────────────── */
+.table-wrap {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────── */
 .toolbar { display: grid; grid-template-columns: 1fr 220px; gap: 8px; }
-.search-input,.search-select,.batch-input { border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); border-radius: 6px; padding: 6px 8px; }
-.batch-panel { border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--bg-surface); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.select-all { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); padding-right: 6px; }
-.table { border: 1px solid var(--border); background: var(--bg-surface); border-radius: 8px; overflow: auto; }
-.row { display: grid; grid-template-columns: 56px 2fr 1fr 2fr 80px 160px; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.row.head { color: var(--text-secondary); font-size: 12px; background: var(--bg-elevated); }
-.row[draggable='true'] { cursor: grab; }
-.row[draggable='true']:active { cursor: grabbing; }
-.ops { display: flex; gap: 8px; }
-.btn { border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; background: var(--accent); color: white; }
-.btn.ghost { background: var(--bg-hover); color: var(--text-primary); }
-.btn.danger { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-.confirm-mask { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.35); z-index: 30; }
-.confirm-card { width: min(480px, 92vw); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
-.confirm-card h3 { margin: 0 0 8px; }
-.preview-box { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); padding: 8px; margin-bottom: 8px; font-size: 12px; }
+.search-input,
+.search-select {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.search-input:focus,
+.search-select:focus { border-color: var(--accent); }
+
+/* ── Batch header ───────────────────────────────────────────── */
+.batch-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  min-height: 36px;
+  transition: border-color 0.2s ease;
+}
+.batch-header:has(.batch-actions) { border-color: rgba(59, 130, 246, 0.35); }
+
+.select-all {
+  gap: 6px;
+  flex-shrink: 0;
+}
+.select-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.batch-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.batch-select,
+.batch-tag-input {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  height: 26px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.batch-select:focus,
+.batch-tag-input:focus { border-color: var(--accent); }
+.batch-tag-input { width: 130px; }
+
+/* batch-slide: horizontal reveal from left */
+.batch-slide-enter-active {
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+.batch-slide-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.batch-slide-enter-from,
+.batch-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+/* ── Table ──────────────────────────────────────────────────── */
+.table {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border-radius: 8px;
+  overflow: auto;
+}
+
+/* ── Row wrapper (groups row + expanded preview) ────────────── */
+.row-wrap {
+  border-bottom: 1px solid var(--border);
+  animation: row-in 0.16s ease both;
+}
+.row-wrap:last-child { border-bottom: none; }
+
+/* column grid: drag | check | title | cat | tags | count | ops */
+.row {
+  display: grid;
+  grid-template-columns: 20px 32px 2fr 1fr 2fr 56px 148px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  transition: background 0.1s ease, box-shadow 0.1s ease;
+}
+.row.head {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  animation: none;
+}
+
+/* ── Row interaction states (Raycast-inspired) ──────────────── */
+.row:not(.head):hover { background: var(--bg-elevated); }
+.row.selected { background: var(--bg-elevated); box-shadow: inset 2px 0 0 var(--accent); }
+.row.selected:hover { background: var(--bg-hover); box-shadow: inset 2px 0 0 var(--accent); }
+
+/* ── Columns ────────────────────────────────────────────────── */
+.col-drag  { display: flex; align-items: center; justify-content: center; }
+.col-check { display: flex; align-items: center; }
+.col-title { overflow: hidden; }
+.col-cat   { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-tags  { display: flex; flex-wrap: wrap; gap: 3px; }
+.col-count { text-align: right; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.col-ops   { display: flex; gap: 5px; justify-content: flex-end; }
+
+/* ── Drag handle ────────────────────────────────────────────── */
+.drag-handle {
+  color: var(--text-muted); cursor: grab;
+  opacity: 0; transition: opacity 0.12s ease, color 0.12s ease;
+}
+.row:hover .drag-handle { opacity: 0.6; }
+.row.selected .drag-handle { opacity: 0.5; color: var(--accent); }
+.drag-handle:active { cursor: grabbing; }
+
+/* ── Row title (expand trigger) ─────────────────────────────── */
+.row-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.row-title:hover .title-text { color: var(--accent); }
+.title-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.12s ease;
+}
+.expand-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1), color 0.12s ease;
+}
+.row-wrap.row-expanded .expand-icon {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+/* ── Content preview (expanded) ─────────────────────────────── */
+.row-preview {
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.18);
+  border-top: 1px solid var(--border);
+}
+.row-preview-inner {
+  /* indent to align under title text */
+  padding: 8px 12px 10px calc(20px + 32px + 11px + 5px + 10px + 8px);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.row-preview-inner::-webkit-scrollbar { width: 4px; }
+.row-preview-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* content-expand transition */
+.content-expand-enter-active { transition: max-height 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.18s ease; }
+.content-expand-leave-active { transition: max-height 0.16s ease, opacity 0.12s ease; }
+.content-expand-enter-from,
+.content-expand-leave-to { max-height: 0; opacity: 0; }
+.content-expand-enter-to,
+.content-expand-leave-from { max-height: 160px; opacity: 1; }
+
+/* ── Row text ───────────────────────────────────────────────── */
+.row-cat { font-size: 12px; color: var(--text-secondary); }
+
+/* ── Custom checkbox ────────────────────────────────────────── */
+.checkbox-wrap {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+}
+.checkbox-wrap input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.checkbox-box {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  display: inline-block;
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  flex-shrink: 0;
+}
+/* hover */
+.checkbox-wrap:hover .checkbox-box { border-color: var(--accent); }
+/* checked */
+.checkbox-wrap input:checked + .checkbox-box {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.05);
+}
+/* checkmark */
+.checkbox-wrap input:checked + .checkbox-box::after {
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 1px;
+  width: 4px;
+  height: 7.5px;
+  border: 1.5px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(43deg);
+}
+
+/* ── Tag chips ──────────────────────────────────────────────── */
+.tag-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--tag-bg);
+  color: var(--tag-color);
+  white-space: nowrap;
+  transition: filter 0.12s ease;
+}
+.tag-chip:hover { filter: brightness(1.15); }
+
+/* ── Empty state ────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  animation: fade-up 0.2s ease both;
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn {
+  border: 0;
+  border-radius: 5px;
+  padding: 6px 10px;
+  cursor: pointer;
+  background: var(--accent);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+.btn:hover { opacity: 0.9; }
+.btn:active { transform: scale(0.97); }
+
+.btn.ghost {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.btn.ghost:hover { background: var(--bg-hover); border-color: rgba(255,255,255,0.12); }
+
+.btn.danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+.btn.danger:hover { background: rgba(239, 68, 68, 0.2); }
+
+.btn.danger-confirm {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  animation: danger-pulse 0.6s ease;
+}
+
+.btn.sm { padding: 3px 8px; font-size: 12px; }
+
+/* ── Dialogs ────────────────────────────────────────────────── */
+.confirm-mask {
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 30;
+}
+.confirm-card {
+  width: min(480px, 92vw);
+  background: var(--bg-elevated);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  animation: confirm-in 0.2s cubic-bezier(0.2, 0, 0, 1) both;
+}
+.confirm-card h3 { margin: 0 0 8px; font-size: 15px; }
+.preview-box {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  padding: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
 .preview-title { color: var(--text-primary); margin-bottom: 4px; }
 .preview-box ul { margin: 0; padding-left: 16px; color: var(--text-secondary); }
 .muted { color: var(--text-secondary); font-size: 12px; }
-.stats { border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--bg-surface); margin: 8px 0; color: var(--text-secondary); font-size: 13px; display: grid; gap: 4px; }
+.stats {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg-surface);
+  margin: 8px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
+}
 .strategy-group { display: grid; gap: 6px; margin-bottom: 10px; color: var(--text-primary); }
-.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.toast { position: fixed; right: 16px; bottom: 16px; padding: 8px 12px; border: 1px solid var(--border); background: var(--success-soft); color: var(--success); border-radius: 6px; font-size: 12px; }
-.toast.error { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-.fade-enter-active,.fade-leave-active { transition: opacity 0.18s ease; }
-.fade-enter-from,.fade-leave-to { opacity: 0; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
-@media (max-width: 980px) { .panel { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; } }
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast {
+  position: fixed; right: 16px; bottom: 16px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-elevated);
+  color: var(--success);
+  border-radius: 7px;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.toast.error { color: #f87171; }
+/* toast uses Vue fade transition, but we override the enter animation */
+.fade-enter-active { animation: toast-in 0.2s cubic-bezier(0.2, 0, 0, 1) both; }
+.fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.fade-leave-to { opacity: 0; transform: translateX(6px); }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 980px) {
+  .panel { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; }
+}
 @media (max-width: 720px) {
   .admin-layout { padding: 8px; }
   .back-text, .create-text { display: none; }
   .toolbar { grid-template-columns: 1fr; }
-  .row { grid-template-columns: 1fr; align-items: start; }
+  .row { grid-template-columns: 20px 32px 1fr 100px; }
+  .col-cat, .col-count { display: none; }
   .row.head { display: none; }
 }
 </style>
