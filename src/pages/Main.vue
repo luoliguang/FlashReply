@@ -175,7 +175,7 @@ function onAddCategory(name) {
 }
 
 function onRenameCategory(payload) {
-  const result = categoriesStore.renameCategory(payload.id, payload.name)
+  const result = categoriesStore.renameCategory(payload.id, payload.name, payload.icon)
   if (!result.ok) {
     showToast(result.message, 'error')
     return
@@ -231,12 +231,16 @@ function confirmRemoveCategory() {
   const category = pendingDeleteCategory.value
   if (!category) return
 
-  if (!migrateTargetId.value || migrateTargetId.value === category._id) {
-    showToast('请选择有效的迁移目标分类', 'error')
-    return
+  const count = pendingDeleteCount.value
+
+  if (count > 0) {
+    if (!migrateTargetId.value || migrateTargetId.value === category._id) {
+      showToast('请选择有效的迁移目标分类', 'error')
+      return
+    }
+    answersStore.moveAnswersToCategory(category._id, migrateTargetId.value)
   }
 
-  const affected = answersStore.moveAnswersToCategory(category._id, migrateTargetId.value)
   const result = categoriesStore.removeCategory(category._id)
   if (!result.ok) {
     showToast(result.message, 'error')
@@ -247,14 +251,13 @@ function confirmRemoveCategory() {
     categoriesStore.setCurrent('all')
   }
 
-  const targetName = categoriesStore.list.find((c) => c._id === migrateTargetId.value)?.name || '目标分类'
-  try {
-    localStorage.setItem(LAST_MIGRATE_TARGET_KEY, migrateTargetId.value)
-  } catch {
-    // ignore storage errors
+  const targetName = categoriesStore.list.find((c) => c._id === migrateTargetId.value)?.name || ''
+  const catName = category.name
+  if (migrateTargetId.value) {
+    try { localStorage.setItem(LAST_MIGRATE_TARGET_KEY, migrateTargetId.value) } catch { /* ignore */ }
   }
   pendingDeleteCategory.value = null
-  showToast(`已删除分类，并迁移 ${affected} 条回复到「${targetName}」`)
+  showToast(count > 0 ? `已删除分类，并迁移 ${count} 条回复到「${targetName}」` : `已删除分类「${catName}」`)
 }
 
 async function triggerCopy(answer, vars = {}) {
@@ -489,25 +492,30 @@ async function onConfirmVars(values) {
     <div v-if="pendingDeleteCategory" class="confirm-mask">
       <div class="confirm-card">
         <h3>确认删除分类</h3>
-        <p>
-          将删除「{{ pendingDeleteCategory.name }}」，并把
-          <strong>{{ pendingDeleteCount }}</strong>
-          条回复迁移到：
-        </p>
 
-        <div v-if="pendingDeletePreview.length" class="preview-box">
-          <div class="preview-title">受影响回复预览：</div>
-          <ul>
-            <li v-for="title in pendingDeletePreview" :key="title">{{ title }}</li>
-          </ul>
-          <div v-if="pendingDeleteCount > 3" class="preview-more">... 还有 {{ pendingDeleteCount - 3 }} 条</div>
-        </div>
+        <template v-if="pendingDeleteCount > 0">
+          <p>
+            将删除「{{ pendingDeleteCategory.name }}」，并把
+            <strong>{{ pendingDeleteCount }}</strong>
+            条回复迁移到：
+          </p>
+          <div v-if="pendingDeletePreview.length" class="preview-box">
+            <div class="preview-title">受影响回复预览：</div>
+            <ul>
+              <li v-for="title in pendingDeletePreview" :key="title">{{ title }}</li>
+            </ul>
+            <div v-if="pendingDeleteCount > 3" class="preview-more">... 还有 {{ pendingDeleteCount - 3 }} 条</div>
+          </div>
+          <select v-model="migrateTargetId" class="target-select">
+            <option v-for="target in migrateTargets" :key="target._id" :value="target._id">
+              {{ target.icon }} {{ target.name }}
+            </option>
+          </select>
+        </template>
 
-        <select v-model="migrateTargetId" class="target-select">
-          <option v-for="target in migrateTargets" :key="target._id" :value="target._id">
-            {{ target.icon }} {{ target.name }}
-          </option>
-        </select>
+        <template v-else>
+          <p class="muted">「{{ pendingDeleteCategory.name }}」是空分类，确认删除？</p>
+        </template>
 
         <div class="confirm-actions">
           <button class="btn-danger" @click="confirmRemoveCategory">确认删除</button>

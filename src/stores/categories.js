@@ -18,11 +18,12 @@ function validateCategoryName(name) {
 
 function normalizeInput(input) {
   if (typeof input === 'string') {
-    return { name: input, parentId: '' }
+    return { name: input, parentId: '', icon: '' }
   }
   return {
     name: input?.name || '',
-    parentId: input?.parentId || ''
+    parentId: input?.parentId || '',
+    icon: input?.icon || ''
   }
 }
 
@@ -117,7 +118,7 @@ export const useCategoriesStore = defineStore('categories', {
         _id: `cat_${uuid()}`,
         type: 'category',
         name: finalName,
-        icon: parentId ? '📂' : '📁',
+        icon: normalized.icon || (parentId ? '📂' : '📁'),
         parentId,
         order,
         createdAt: new Date().toISOString(),
@@ -128,7 +129,7 @@ export const useCategoriesStore = defineStore('categories', {
       this.reload()
       return { ok: true, data: doc }
     },
-    renameCategory(id, name) {
+    renameCategory(id, name, icon) {
       const valid = validateCategoryName(name)
       if (!valid.ok) return { ok: false, message: valid.message }
       const finalName = valid.value
@@ -144,6 +145,7 @@ export const useCategoriesStore = defineStore('categories', {
       const doc = {
         ...target,
         name: finalName,
+        icon: icon || target.icon,
         updatedAt: new Date().toISOString()
       }
       CategoryDB.save(doc)

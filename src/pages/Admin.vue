@@ -46,9 +46,24 @@ const importStats = ref({
   answerOverwrite: 0
 })
 
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200]
+const PAGE_SIZE_KEY = 'quick-reply-admin-page-size-v1'
+const pageSize = ref((() => {
+  const saved = Number(localStorage.getItem(PAGE_SIZE_KEY))
+  return PAGE_SIZE_OPTIONS.includes(saved) ? saved : 20
+})())
+const currentPage = ref(1)
+
+watch(pageSize, (val) => {
+  localStorage.setItem(PAGE_SIZE_KEY, String(val))
+  currentPage.value = 1
+})
+
 let toastTimer = null
 let deleteTimer = null
+let batchDeleteTimer = null
 const pendingDeleteId = ref('')
+const pendingBatchDelete = ref(false)
 const expandedIds = ref([])
 
 function toggleExpand(id) {
@@ -83,8 +98,28 @@ const filteredList = computed(() => {
   })
 })
 
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredList.value.length / pageSize.value)))
+const pagedList = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredList.value.slice(start, start + pageSize.value)
+})
+const pageInfo = computed(() => {
+  const total = filteredList.value.length
+  const start = Math.min((currentPage.value - 1) * pageSize.value + 1, total)
+  const end = Math.min(currentPage.value * pageSize.value, total)
+  return { total, start, end }
+})
+
+watch([searchText, filterCategoryId], () => { currentPage.value = 1 })
+watch(selectedIds, () => {
+  if (pendingBatchDelete.value) {
+    pendingBatchDelete.value = false
+    clearTimeout(batchDeleteTimer)
+  }
+})
+
 const allChecked = computed(
-  () => filteredList.value.length > 0 && filteredList.value.every((item) => selectedIds.value.includes(item._id))
+  () => pagedList.value.length > 0 && pagedList.value.every((item) => selectedIds.value.includes(item._id))
 )
 const selectedCount = computed(() => selectedIds.value.length)
 
@@ -169,7 +204,7 @@ function handleAddCategory(payload) {
 }
 
 function handleRenameCategory(payload) {
-  const result = categoriesStore.renameCategory(payload.id, payload.name)
+  const result = categoriesStore.renameCategory(payload.id, payload.name, payload.icon)
   if (!result.ok) {
     showToast(result.message, 'error')
     return
@@ -207,21 +242,27 @@ function removeCategory(cat) {
 function confirmRemoveCategory() {
   const category = pendingDeleteCategory.value
   if (!category) return
-  if (!migrateTargetId.value || migrateTargetId.value === category._id) {
-    showToast('请选择有效的迁移目标分类', 'error')
-    return
+
+  const count = pendingDeleteCount.value
+
+  if (count > 0) {
+    if (!migrateTargetId.value || migrateTargetId.value === category._id) {
+      showToast('请选择有效的迁移目标分类', 'error')
+      return
+    }
+    answersStore.moveAnswersToCategory(category._id, migrateTargetId.value)
+    try { localStorage.setItem(LAST_MIGRATE_TARGET_KEY, migrateTargetId.value) } catch { /* ignore */ }
   }
 
-  const affected = answersStore.moveAnswersToCategory(category._id, migrateTargetId.value)
   const result = categoriesStore.removeCategory(category._id)
   if (!result.ok) { showToast(result.message, 'error'); return }
 
   if (filterCategoryId.value === category._id) filterCategoryId.value = 'all'
 
-  const targetName = categoriesStore.list.find((c) => c._id === migrateTargetId.value)?.name || '目标分类'
-  try { localStorage.setItem(LAST_MIGRATE_TARGET_KEY, migrateTargetId.value) } catch { /* ignore */ }
+  const targetName = categoriesStore.list.find((c) => c._id === migrateTargetId.value)?.name || ''
+  const catName = category.name
   pendingDeleteCategory.value = null
-  showToast(`已删除分类，并迁移 ${affected} 条回复到「${targetName}」`)
+  showToast(count > 0 ? `已删除分类，并迁移 ${count} 条回复到「${targetName}」` : `已删除分类「${catName}」`)
 }
 
 function onDropAnswerToCategory(payload) {
@@ -242,7 +283,13 @@ function toggleOne(id, checked) {
 }
 
 function toggleAll(checked) {
-  selectedIds.value = checked ? filteredList.value.map((item) => item._id) : []
+  if (checked) {
+    const toAdd = pagedList.value.map((item) => item._id).filter((id) => !selectedIds.value.includes(id))
+    selectedIds.value = [...selectedIds.value, ...toAdd]
+  } else {
+    const pageIds = new Set(pagedList.value.map((item) => item._id))
+    selectedIds.value = selectedIds.value.filter((id) => !pageIds.has(id))
+  }
 }
 
 function batchMoveCategory() {
@@ -277,6 +324,14 @@ function batchRemoveTags() {
 
 function batchDelete() {
   if (!selectedIds.value.length) return showToast('请先选择要处理的回复', 'error')
+  if (!pendingBatchDelete.value) {
+    pendingBatchDelete.value = true
+    clearTimeout(batchDeleteTimer)
+    batchDeleteTimer = setTimeout(() => { pendingBatchDelete.value = false }, 3000)
+    return
+  }
+  clearTimeout(batchDeleteTimer)
+  pendingBatchDelete.value = false
   const removed = selectedIds.value.length
   answersStore.removeAnswers(selectedIds.value)
   selectedIds.value = []
@@ -510,7 +565,11 @@ function closeImportDialog() {
               <!-- 其他操作 -->
               <div class="batch-group">
                 <button class="btn ghost sm" @click="batchDuplicate">复制副本</button>
-                <button class="btn danger sm" @click="batchDelete">删除</button>
+                <button
+                  class="btn sm"
+                  :class="pendingBatchDelete ? 'danger-confirm' : 'danger'"
+                  @click="batchDelete"
+                >{{ pendingBatchDelete ? `确认删除 ${selectedCount} 条?` : '删除' }}</button>
               </div>
             </div>
           </transition>
@@ -529,7 +588,7 @@ function closeImportDialog() {
           </div>
 
           <div
-            v-for="item in filteredList"
+            v-for="item in pagedList"
             :key="item._id"
             class="row-wrap"
             :class="{ 'row-expanded': expandedIds.includes(item._id) }"
@@ -588,12 +647,38 @@ function closeImportDialog() {
           </div>
 
           <!-- 空状态 -->
-          <div v-if="filteredList.length === 0" class="empty-state">
+          <div v-if="pagedList.length === 0" class="empty-state">
             <p>{{ searchText ? `没有匹配「${searchText}」的回复` : '该分类下暂无回复' }}</p>
             <button class="btn" @click="newAnswer"><Plus :size="13" />新建回复</button>
           </div>
         </section>
+
+        <!-- 分页栏 -->
+        <div v-if="filteredList.length > 0" class="pagination">
+          <div class="page-size-wrap">
+            <span class="page-info">第 {{ pageInfo.start }}–{{ pageInfo.end }} 条，共 {{ pageInfo.total }} 条</span>
+            <select v-model="pageSize" class="page-size-select">
+              <option v-for="n in PAGE_SIZE_OPTIONS" :key="n" :value="n">{{ n }} 条/页</option>
+            </select>
+          </div>
+          <div class="page-controls">
+            <button class="page-btn" :disabled="currentPage === 1" @click="currentPage = 1">«</button>
+            <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">‹</button>
+            <template v-for="p in totalPages" :key="p">
+              <button
+                v-if="Math.abs(p - currentPage) <= 2 || p === 1 || p === totalPages"
+                class="page-btn"
+                :class="{ active: p === currentPage }"
+                @click="currentPage = p"
+              >{{ p }}</button>
+              <span v-else-if="p === currentPage - 3 || p === currentPage + 3" class="page-ellipsis">…</span>
+            </template>
+            <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">›</button>
+            <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage = totalPages">»</button>
+          </div>
+        </div>
       </section>
+
     </div>
 
     <AnswerEditor :show="showEditor" :categories="categoriesStore.flattened" :model-value="editing || {}" @save="saveAnswer" @cancel="showEditor = false" />
@@ -601,20 +686,30 @@ function closeImportDialog() {
     <div v-if="pendingDeleteCategory" class="confirm-mask" @click.self="pendingDeleteCategory = null">
       <div class="confirm-card">
         <h3>确认删除分类</h3>
-        <p class="muted">
-          将删除「{{ pendingDeleteCategory.name }}」，并把
-          <strong>{{ pendingDeleteCount }}</strong> 条回复迁移到：
-        </p>
-        <div v-if="pendingDeletePreview.length" class="preview-box">
-          <div class="preview-title">受影响回复：</div>
-          <ul><li v-for="title in pendingDeletePreview" :key="title">{{ title }}</li></ul>
-          <div v-if="pendingDeleteCount > 3" class="muted">... 还有 {{ pendingDeleteCount - 3 }} 条</div>
-        </div>
-        <select v-model="migrateTargetId" class="search-select" style="width:100%;margin-bottom:10px">
-          <option v-for="target in migrateTargets" :key="target._id" :value="target._id">
-            {{ target.icon }} {{ target.name }}
-          </option>
-        </select>
+
+        <!-- 有回复：需要迁移 -->
+        <template v-if="pendingDeleteCount > 0">
+          <p class="muted">
+            将删除「{{ pendingDeleteCategory.name }}」，并把
+            <strong>{{ pendingDeleteCount }}</strong> 条回复迁移到：
+          </p>
+          <div v-if="pendingDeletePreview.length" class="preview-box">
+            <div class="preview-title">受影响回复：</div>
+            <ul><li v-for="title in pendingDeletePreview" :key="title">{{ title }}</li></ul>
+            <div v-if="pendingDeleteCount > 3" class="muted">... 还有 {{ pendingDeleteCount - 3 }} 条</div>
+          </div>
+          <select v-model="migrateTargetId" class="search-select" style="width:100%;margin-bottom:10px">
+            <option v-for="target in migrateTargets" :key="target._id" :value="target._id">
+              {{ target.icon }} {{ target.name }}
+            </option>
+          </select>
+        </template>
+
+        <!-- 空分类：直接确认 -->
+        <template v-else>
+          <p class="muted">「{{ pendingDeleteCategory.name }}」是空分类，确认删除？</p>
+        </template>
+
         <div class="confirm-actions">
           <button class="btn danger" @click="confirmRemoveCategory">确认删除</button>
           <button class="btn ghost" @click="pendingDeleteCategory = null">取消</button>
@@ -717,7 +812,7 @@ function closeImportDialog() {
 /* ── Table wrap ─────────────────────────────────────────────── */
 .table-wrap {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto 1fr auto;
   gap: 8px;
   min-height: 0;
 }
@@ -1092,6 +1187,80 @@ function closeImportDialog() {
 .fade-enter-active { animation: toast-in 0.2s cubic-bezier(0.2, 0, 0, 1) both; }
 .fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
 .fade-leave-to { opacity: 0; transform: translateX(6px); }
+
+/* ── Pagination ─────────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px 2px;
+  flex-shrink: 0;
+}
+.page-size-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.page-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.page-size-select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.page-size-select:hover,
+.page-size-select:focus {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.page-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.page-btn {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.page-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.page-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.page-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.page-ellipsis {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
 
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 980px) {

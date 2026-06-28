@@ -2,6 +2,15 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { MoreHorizontal, ChevronUp, ChevronDown, Plus, Pencil, Trash2, Check, X } from 'lucide-vue-next'
 
+const EMOJI_LIST = [
+  '📁', '📂', '🗂️', '📋', '📌', '📎',
+  '🙋', '👥', '💬', '🤝', '❤️', '⭐',
+  '📦', '🛒', '💳', '🚚', '📮', '🏷️',
+  '🔧', '⚙️', '🛠️', '🔍', '💡', '📊',
+  '💰', '💎', '🎁', '🎯', '🏆', '✅',
+  '❓', '❗', '⚠️', '🔔', '📢', '🌟',
+]
+
 const props = defineProps({
   categories: { type: Array, default: () => [] },
   currentId: { type: String, default: 'all' },
@@ -13,13 +22,16 @@ const emit = defineEmits(['change', 'add', 'rename', 'remove', 'move', 'drop-cat
 // null = not creating; '' = creating top-level; 'cat_xxx' = creating child under this id
 const creatingParentId = ref(null)
 const newName = ref('')
+const newIcon = ref('📁')
 const createInputRef = ref(null)
 
 const editingId = ref('')
 const editingName = ref('')
+const editIcon = ref('📁')
 const editInputRef = ref(null)
 
 const expandedId = ref('')
+const iconPickerOpenId = ref('')
 const draggingId = ref('')
 const dropTarget = ref({ id: '', mode: '' })
 
@@ -38,6 +50,7 @@ function childrenOf(id) {
 function openCreate(pid) {
   creatingParentId.value = pid
   newName.value = ''
+  newIcon.value = pid ? '📂' : '📁'
   expandedId.value = ''
 }
 
@@ -49,7 +62,7 @@ function cancelCreate() {
 function confirmCreate() {
   const name = newName.value.trim()
   if (!name) return
-  emit('add', { name, parentId: creatingParentId.value || '' })
+  emit('add', { name, parentId: creatingParentId.value || '', icon: newIcon.value })
   cancelCreate()
 }
 
@@ -61,6 +74,7 @@ watch(creatingParentId, (val) => {
 function startEdit(cat) {
   editingId.value = cat._id
   editingName.value = cat.name
+  editIcon.value = cat.icon || '📁'
   expandedId.value = ''
   nextTick(() => editInputRef.value?.focus())
 }
@@ -68,10 +82,11 @@ function startEdit(cat) {
 function cancelEdit() {
   editingId.value = ''
   editingName.value = ''
+  editIcon.value = '📁'
 }
 
 function confirmEdit(id) {
-  emit('rename', { id, name: editingName.value })
+  emit('rename', { id, name: editingName.value, icon: editIcon.value })
   cancelEdit()
 }
 
@@ -92,6 +107,17 @@ function toggleExpand(id) {
 function selectCategory(cat) {
   emit('change', cat._id)
   expandedId.value = ''
+  iconPickerOpenId.value = ''
+}
+
+function toggleIconPicker(id) {
+  iconPickerOpenId.value = iconPickerOpenId.value === id ? '' : id
+  expandedId.value = ''
+}
+
+function quickSetIcon(cat, icon) {
+  emit('rename', { id: cat._id, name: cat.name, icon })
+  iconPickerOpenId.value = ''
 }
 
 function categoryLabel(cat) {
@@ -170,7 +196,7 @@ function dropClass(catId, mode) {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" @click="iconPickerOpenId = ''">
     <div class="sidebar-head">
       <span>分类</span>
       <button class="btn-add" title="新建一级分类" @click="openCreate('')">
@@ -184,6 +210,7 @@ function dropClass(catId, mode) {
     </div>
 
     <!-- 一级分类列表 -->
+    <transition-group name="cat-item" tag="div">
     <div v-for="(cat, idx) in topLevelCategories" :key="cat._id" class="category-row">
 
       <!-- 拖拽插入线（同级排序 / 子升父） -->
@@ -197,6 +224,9 @@ function dropClass(catId, mode) {
 
       <!-- 编辑模式 -->
       <template v-if="editingId === cat._id">
+        <div class="icon-picker">
+          <button v-for="e in EMOJI_LIST" :key="e" type="button" class="icon-btn" :class="{ active: editIcon === e }" @click="editIcon = e">{{ e }}</button>
+        </div>
         <input
           ref="editInputRef"
           v-model="editingName"
@@ -222,9 +252,9 @@ function dropClass(catId, mode) {
           @drop="onDrop(cat, 'inside', $event)"
           @click="selectCategory(cat)"
         >
-          <span class="category-text" :title="categoryLabel(cat)">{{ categoryLabel(cat) }}</span>
+          <span class="cat-icon" :title="'点击换图标'" @click.stop="toggleIconPicker(cat._id)">{{ cat.icon }}</span>
+          <span class="category-text" :title="cat.name">{{ cat.name }}</span>
           <div class="category-actions-inline">
-            <!-- 快速添加子分类 -->
             <button class="btn-expand" title="新增子分类" @click.stop="openCreate(cat._id)">
               <Plus :size="12" />
             </button>
@@ -234,27 +264,39 @@ function dropClass(catId, mode) {
           </div>
         </div>
 
+        <!-- 快速图标选择器（点击图标触发） -->
+        <transition name="picker-drop">
+          <div v-if="iconPickerOpenId === cat._id" class="icon-picker-popup" @click.stop>
+            <button v-for="e in EMOJI_LIST" :key="e" type="button" class="icon-btn" :class="{ active: cat.icon === e }" @click="quickSetIcon(cat, e)">{{ e }}</button>
+          </div>
+        </transition>
+
         <!-- 展开操作菜单 -->
-        <div v-if="expandedId === cat._id" class="row-actions">
-          <button class="btn-mini" :disabled="idx === 0" title="上移" @click="moveCategory(cat, 'up')">
-            <ChevronUp :size="13" />
-          </button>
-          <button class="btn-mini" :disabled="idx === topLevelCategories.length - 1" title="下移" @click="moveCategory(cat, 'down')">
-            <ChevronDown :size="13" />
-          </button>
-          <button class="btn-mini" title="重命名" @click="startEdit(cat)">
-            <Pencil :size="12" />
-          </button>
-          <button class="btn-mini danger" title="删除" @click="removeCategory(cat)">
-            <Trash2 :size="12" />
-          </button>
-        </div>
+        <transition name="menu-slide">
+          <div v-if="expandedId === cat._id" class="row-actions">
+            <button class="btn-mini" :disabled="idx === 0" title="上移" @click="moveCategory(cat, 'up')">
+              <ChevronUp :size="13" />
+            </button>
+            <button class="btn-mini" :disabled="idx === topLevelCategories.length - 1" title="下移" @click="moveCategory(cat, 'down')">
+              <ChevronDown :size="13" />
+            </button>
+            <button class="btn-mini" title="重命名" @click="startEdit(cat)">
+              <Pencil :size="12" />
+            </button>
+            <button class="btn-mini danger" title="删除" @click="removeCategory(cat)">
+              <Trash2 :size="12" />
+            </button>
+          </div>
+        </transition>
 
         <!-- 子分类列表 -->
         <div v-if="childrenOf(cat._id).length || creatingParentId === cat._id" class="children">
           <div v-for="sub in childrenOf(cat._id)" :key="sub._id" class="child-row">
             <!-- 编辑模式 -->
             <template v-if="editingId === sub._id">
+              <div class="icon-picker">
+                <button v-for="e in EMOJI_LIST" :key="e" type="button" class="icon-btn" :class="{ active: editIcon === e }" @click="editIcon = e">{{ e }}</button>
+              </div>
               <input
                 ref="editInputRef"
                 v-model="editingName"
@@ -284,7 +326,8 @@ function dropClass(catId, mode) {
                 @drop="onDrop(sub, 'inside', $event)"
                 @click="selectCategory(sub)"
               >
-                <span class="category-text" :title="categoryLabel(sub)">{{ categoryLabel(sub) }}</span>
+                <span class="cat-icon" title="点击换图标" @click.stop="toggleIconPicker(sub._id)">{{ sub.icon }}</span>
+                <span class="category-text" :title="sub.name">{{ sub.name }}</span>
                 <div class="category-actions-inline">
                   <button class="btn-expand" title="更多操作" @click.stop="toggleExpand(sub._id)">
                     <MoreHorizontal :size="13" />
@@ -292,17 +335,28 @@ function dropClass(catId, mode) {
                 </div>
               </div>
 
-              <div v-if="expandedId === sub._id" class="row-actions sub-actions">
-                <button class="btn-mini" title="上移" @click="moveCategory(sub, 'up')"><ChevronUp :size="13" /></button>
-                <button class="btn-mini" title="下移" @click="moveCategory(sub, 'down')"><ChevronDown :size="13" /></button>
-                <button class="btn-mini" title="重命名" @click="startEdit(sub)"><Pencil :size="12" /></button>
-                <button class="btn-mini danger" title="删除" @click="removeCategory(sub)"><Trash2 :size="12" /></button>
-              </div>
+              <transition name="picker-drop">
+                <div v-if="iconPickerOpenId === sub._id" class="icon-picker-popup" @click.stop>
+                  <button v-for="e in EMOJI_LIST" :key="e" type="button" class="icon-btn" :class="{ active: sub.icon === e }" @click="quickSetIcon(sub, e)">{{ e }}</button>
+                </div>
+              </transition>
+
+              <transition name="menu-slide">
+                <div v-if="expandedId === sub._id" class="row-actions sub-actions">
+                  <button class="btn-mini" title="上移" @click="moveCategory(sub, 'up')"><ChevronUp :size="13" /></button>
+                  <button class="btn-mini" title="下移" @click="moveCategory(sub, 'down')"><ChevronDown :size="13" /></button>
+                  <button class="btn-mini" title="重命名" @click="startEdit(sub)"><Pencil :size="12" /></button>
+                  <button class="btn-mini danger" title="删除" @click="removeCategory(sub)"><Trash2 :size="12" /></button>
+                </div>
+              </transition>
             </template>
           </div>
 
           <!-- 新建子分类：表单紧跟在该父级下面 -->
           <div v-if="creatingParentId === cat._id" class="create-row child-create">
+            <div class="icon-picker">
+              <button v-for="e in EMOJI_LIST" :key="e" type="button" class="icon-btn" :class="{ active: newIcon === e }" @click="newIcon = e">{{ e }}</button>
+            </div>
             <input
               ref="createInputRef"
               v-model="newName"
@@ -319,9 +373,13 @@ function dropClass(catId, mode) {
         </div>
       </template>
     </div>
+    </transition-group>
 
     <!-- 新建一级分类：表单在列表底部 -->
     <div v-if="creatingParentId === ''" class="create-row">
+      <div class="icon-picker">
+        <button v-for="e in EMOJI_LIST" :key="e" type="button" class="icon-btn" :class="{ active: newIcon === e }" @click="newIcon = e">{{ e }}</button>
+      </div>
       <input
         ref="createInputRef"
         v-model="newName"
@@ -419,6 +477,85 @@ function dropClass(catId, mode) {
   padding-left: 4px;
 }
 
+/* ── Cat icon (inline clickable) ────────────────────────────── */
+.cat-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 4px;
+  padding: 1px 2px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.cat-icon:hover {
+  background: var(--bg-hover);
+  transform: scale(1.2);
+}
+
+/* ── Quick icon picker popup ────────────────────────────────── */
+.icon-picker-popup {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  padding: 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 2px 0 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* picker-drop transition */
+.picker-drop-enter-active {
+  transition: opacity 0.15s ease, transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+.picker-drop-leave-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.picker-drop-enter-from,
+.picker-drop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ── Shared emoji picker (create/edit inline + quick popup) ── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  margin-bottom: 4px;
+}
+
+.icon-btn {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s ease, border-color 0.1s ease, transform 0.1s ease;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+}
+
+.icon-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+
 .create-input,
 .edit-input {
   width: 100%;
@@ -449,12 +586,12 @@ function dropClass(catId, mode) {
 }
 
 .category-row {
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .category-item {
   width: 100%;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-secondary);
@@ -547,6 +684,39 @@ function dropClass(catId, mode) {
   background: var(--accent);
   height: 3px;
   box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* ── row-actions expand animation ──────────────────────────── */
+.menu-slide-enter-active {
+  transition: opacity 0.15s ease, transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+.menu-slide-leave-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.menu-slide-enter-from,
+.menu-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* ── category list item removal animation ───────────────────── */
+.cat-item-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease, max-height 0.2s ease, margin-bottom 0.2s ease;
+  overflow: hidden;
+  max-height: 200px;
+}
+.cat-item-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
+  max-height: 0 !important;
+  margin-bottom: 0 !important;
+}
+.cat-item-enter-active {
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+.cat-item-enter-from {
+  opacity: 0;
+  transform: translateX(-6px);
 }
 
 /* 子升父落区：平时不可见，拖动子分类时出现 */
