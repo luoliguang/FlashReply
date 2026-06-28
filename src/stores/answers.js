@@ -8,9 +8,13 @@ export const useAnswersStore = defineStore('answers', {
   state: () => ({
     list: [],
     filtered: [],
-    query: ''
+    query: '',
+    enterSignal: 0
   }),
   actions: {
+    notifyEnter() {
+      this.enterSignal++
+    },
     init() {
       const items = AnswerDB.getAll()
       if (!items.length) {

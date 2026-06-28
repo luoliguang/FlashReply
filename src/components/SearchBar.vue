@@ -13,6 +13,12 @@ function onInput(e) {
   emit('update:modelValue', e.target.value)
 }
 
+function focus() {
+  inputRef.value?.focus()
+}
+
+defineExpose({ focus })
+
 onMounted(() => {
   inputRef.value?.focus()
 })

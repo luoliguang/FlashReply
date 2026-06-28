@@ -1,8 +1,10 @@
 <script setup>
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAnswersStore } from './stores/answers'
 
 const router = useRouter()
+const answersStore = useAnswersStore()
 
 onMounted(() => {
   const utools = window?.utools
@@ -12,10 +14,13 @@ onMounted(() => {
     return
   }
 
-  utools.onPluginEnter(({ code }) => {
+  utools.onPluginEnter(({ code, type, payload }) => {
     if (code === 'admin') {
       router.replace('/admin')
     } else {
+      const text = type === 'over' && typeof payload === 'string' ? payload.trim() : ''
+      answersStore.setQuery(text)
+      answersStore.notifyEnter()
       router.replace('/')
     }
   })

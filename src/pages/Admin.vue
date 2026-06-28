@@ -83,18 +83,18 @@ function showToast(text, type = 'success') {
 const allCategoryOptions = computed(() => categoriesStore.flattened)
 
 const filteredList = computed(() => {
-  const keyword = searchText.value.trim().toLowerCase()
+  const tokens = searchText.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const branchIds = new Set(categoriesStore.getBranchIds(filterCategoryId.value))
 
   return answersStore.list.filter((item) => {
     const byCategory = filterCategoryId.value === 'all' ? true : branchIds.has(item.categoryId)
     if (!byCategory) return false
 
-    if (!keyword) return true
+    if (!tokens.length) return true
 
     const categoryName = categoriesStore.list.find((c) => c._id === item.categoryId)?.name || ''
-    const haystack = [item.title || '', item.content || '', (item.tags || []).join(' '), categoryName].join(' ')
-    return haystack.toLowerCase().includes(keyword)
+    const haystack = [item.title || '', item.content || '', (item.tags || []).join(' '), categoryName].join(' ').toLowerCase()
+    return tokens.every((t) => haystack.includes(t))
   })
 })
 

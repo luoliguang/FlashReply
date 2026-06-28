@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Menu, Settings, HelpCircle } from 'lucide-vue-next'
 import SearchBar from '../components/SearchBar.vue'
@@ -32,6 +32,11 @@ const migrateTargetId = ref('')
 const sidebarDrawerOpen = ref(false)
 const insertStrategy = ref(localStorage.getItem('quick-reply-insert-strategy-v1') || 'copy')
 const sidebarWidth = ref(220)
+const searchBarRef = ref(null)
+
+watch(() => answersStore.enterSignal, () => {
+  searchBarRef.value?.focus()
+})
 
 const MIGRATION_NOTICE_KEY = 'quick-reply-migration-notice-v1'
 const LAST_MIGRATE_TARGET_KEY = 'quick-reply-last-migrate-target-v1'
@@ -387,6 +392,7 @@ async function onConfirmVars(values) {
     <div class="top-bar">
       <SearchBar
         id="tour-search"
+        ref="searchBarRef"
         v-model="query"
         @escape="onEsc"
         @up="moveUp"
