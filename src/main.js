@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import './utils/mock-preload'
+import { seedDemoData } from './utils/seed-data'
 import { useAnswersStore } from './stores/answers'
 import { useCategoriesStore } from './stores/categories'
 import './main.css'
@@ -12,6 +13,8 @@ const pinia = createPinia()
 
 app.use(pinia)
 app.use(router)
+
+seedDemoData()
 
 const answersStore = useAnswersStore(pinia)
 const categoriesStore = useCategoriesStore(pinia)
