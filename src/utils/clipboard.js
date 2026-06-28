@@ -5,6 +5,23 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function toPngBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      canvas.getContext('2d').drawImage(img, 0, 0)
+      URL.revokeObjectURL(url)
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas toBlob failed'))), 'image/png')
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image load failed')) }
+    img.src = url
+  })
+}
+
 export async function copyImage(dataUrl) {
   if (window.utools?.copyImage) {
     const ok = window.utools.copyImage(dataUrl)
@@ -14,7 +31,9 @@ export async function copyImage(dataUrl) {
 
   const res = await fetch(dataUrl)
   const blob = await res.blob()
-  await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+  // Clipboard API only accepts image/png; convert everything else
+  const pngBlob = blob.type === 'image/png' ? blob : await toPngBlob(blob)
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
 }
 
 export async function copyFlow(answer, vars = {}) {
