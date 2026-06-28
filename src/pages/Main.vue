@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Menu, Settings } from 'lucide-vue-next'
+import { Menu, Settings, HelpCircle } from 'lucide-vue-next'
 import SearchBar from '../components/SearchBar.vue'
 import CategorySidebar from '../components/CategorySidebar.vue'
 import AnswerList from '../components/AnswerList.vue'
 import VarFillModal from '../components/VarFillModal.vue'
 import CopyAssistant from '../components/CopyAssistant.vue'
+import OnboardingModal from '../components/OnboardingModal.vue'
 import { useAnswersStore } from '../stores/answers'
 import { useCategoriesStore } from '../stores/categories'
 import { parseVariables, fillVariables } from '../utils/variables'
@@ -20,6 +21,7 @@ const showVarModal = ref(false)
 const activeAnswer = ref(null)
 const pendingVars = ref([])
 const activeIndex = ref(0)
+const showOnboarding = ref(false)
 const showCopyAssistant = ref(false)
 const assistantAnswer = ref(null)
 const assistantText = ref('')
@@ -46,6 +48,8 @@ function onKeydown(e) {
   }
 }
 
+const ONBOARDING_KEY = 'quick-reply-onboarding-done-v1'
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
 
@@ -61,6 +65,14 @@ onMounted(() => {
     if (!hasShown) {
       showToast('已完成旧版本数据迁移与配置统一')
       localStorage.setItem(MIGRATION_NOTICE_KEY, '1')
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  try {
+    if (!localStorage.getItem(ONBOARDING_KEY)) {
+      showOnboarding.value = true
     }
   } catch {
     // ignore storage errors
@@ -138,6 +150,12 @@ function onEsc() {
     return
   }
   window.preload?.hideMainWindow?.()
+}
+
+function onOnboardingDone(action) {
+  try { localStorage.setItem(ONBOARDING_KEY, '1') } catch { /* ignore */ }
+  showOnboarding.value = false
+  if (action === 'admin') router.push('/admin')
 }
 
 function onChangeInsertStrategy(value) {
@@ -365,6 +383,7 @@ async function onConfirmVars(values) {
   <div class="main-layout">
     <div class="top-bar">
       <SearchBar
+        id="tour-search"
         v-model="query"
         @escape="onEsc"
         @up="moveUp"
@@ -372,7 +391,7 @@ async function onConfirmVars(values) {
         @enter="onEnter"
       />
       <div class="top-actions">
-        <div class="strategy-switch" role="group" aria-label="插入策略">
+        <div id="tour-strategy" class="strategy-switch" role="group" aria-label="插入策略">
           <button
             class="strategy-btn"
             :class="{ active: insertStrategy === 'copy' }"
@@ -392,7 +411,10 @@ async function onConfirmVars(values) {
           <Menu :size="14" />
           <span class="btn-text">分类</span>
         </button>
-        <button class="admin-btn" @click="router.push('/admin')" title="管理">
+        <button id="tour-help" class="help-btn" title="查看教程" @click="showOnboarding = true">
+          <HelpCircle :size="14" />
+        </button>
+        <button id="tour-admin" class="admin-btn" @click="router.push('/admin')" title="管理">
           <Settings :size="14" />
           <span class="btn-text">管理</span>
         </button>
@@ -400,7 +422,7 @@ async function onConfirmVars(values) {
     </div>
 
     <div class="body" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
-      <div class="sidebar-wrap sidebar-desktop">
+      <div id="tour-categories" class="sidebar-wrap sidebar-desktop">
         <CategorySidebar class="category-panel"
           :categories="categoriesStore.list"
           :current-id="categoriesStore.currentId"
@@ -497,6 +519,8 @@ async function onConfirmVars(values) {
     <transition name="fade">
       <div v-if="toast.show" class="toast" :class="{ error: toast.type === 'error' }">{{ toast.text }}</div>
     </transition>
+
+    <OnboardingModal v-if="showOnboarding" @done="onOnboardingDone" />
   </div>
 </template>
 
@@ -565,6 +589,18 @@ async function onConfirmVars(values) {
 }
 
 .category-toggle,
+.help-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border-radius: 6px;
+  width: 36px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+.help-btn:hover { color: var(--accent); border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.06); }
 .admin-btn {
   border: 1px solid var(--border);
   background: var(--bg-surface);
