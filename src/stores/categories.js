@@ -239,6 +239,25 @@ export const useCategoriesStore = defineStore('categories', {
       this.reload()
       return { ok: true }
     },
+    promoteCategoryToTopLevel(id) {
+      const cat = this.list.find((c) => c._id === id)
+      if (!cat) return { ok: false, message: '分类不存在' }
+      if (!cat.parentId) return { ok: false, message: '已是一级分类' }
+
+      const sameName = this.list.some((c) => !c.parentId && c._id !== id && c.name === cat.name)
+      if (sameName) return { ok: false, message: '一级分类中已有同名分类' }
+
+      const topOrder = this.list.filter((c) => !c.parentId).length
+      CategoryDB.save({
+        ...cat,
+        parentId: '',
+        icon: '📁',
+        order: topOrder,
+        updatedAt: new Date().toISOString()
+      })
+      this.reload()
+      return { ok: true }
+    },
     removeCategory(id) {
       const target = this.list.find((c) => c._id === id)
       if (!target) return { ok: false, message: '分类不存在' }

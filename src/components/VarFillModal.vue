@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { nextTick, reactive, ref, watch } from 'vue'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -9,6 +9,7 @@ const props = defineProps({
 const emit = defineEmits(['confirm', 'cancel'])
 
 const form = reactive({})
+const firstInputRef = ref(null)
 
 watch(
   () => props.variables,
@@ -21,6 +22,13 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => props.show,
+  (val) => {
+    if (val) nextTick(() => firstInputRef.value?.focus())
+  }
+)
+
 function onConfirm() {
   emit('confirm', { ...form })
 }
@@ -30,9 +38,9 @@ function onConfirm() {
   <div v-if="show" class="mask" @click.self="emit('cancel')">
     <div class="modal" tabindex="0" @keydown.esc.prevent="emit('cancel')">
       <h3>填写变量</h3>
-      <label v-for="name in variables" :key="name" class="field">
+      <label v-for="(name, i) in variables" :key="name" class="field">
         <span>{{ name }}</span>
-        <input v-model="form[name]" />
+        <input :ref="i === 0 ? firstInputRef : undefined" v-model="form[name]" @keydown.enter="onConfirm" />
       </label>
       <div class="actions">
         <button class="btn" @click="onConfirm">确认复制</button>

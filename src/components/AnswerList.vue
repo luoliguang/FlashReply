@@ -1,5 +1,6 @@
 <script setup>
 import AnswerCard from './AnswerCard.vue'
+import { Search } from 'lucide-vue-next'
 
 const props = defineProps({
   list: { type: Array, default: () => [] },
@@ -25,8 +26,8 @@ const emit = defineEmits(['copy', 'insert', 'edit'])
     />
 
     <div v-if="props.list.length === 0" class="empty-state">
-      <span class="empty-icon">🔍</span>
-      <p>没有找到「{{ props.keyword }}」相关的回复</p>
+      <Search :size="30" class="empty-icon" />
+      <p>{{ props.keyword ? `没有找到「${props.keyword}」相关的回复` : '该分类下暂无回复' }}</p>
       <slot name="empty-action" />
     </div>
   </section>
@@ -48,6 +49,7 @@ const emit = defineEmits(['copy', 'insert', 'edit'])
   gap: 8px;
 }
 .empty-icon {
-  font-size: 32px;
+  color: var(--text-muted);
+  opacity: 0.6;
 }
 </style>

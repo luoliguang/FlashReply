@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { copyImage } from '../utils/clipboard'
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -62,11 +63,11 @@ async function copyCurrent() {
       </div>
 
       <div class="body-wrap">
-        <button class="nav-btn" :disabled="!canPrev" @click="prev">‹</button>
+        <button class="nav-btn" :disabled="!canPrev" @click="prev"><ChevronLeft :size="18" /></button>
         <div v-if="current" class="body">
           <img :src="current.dataUrl" :alt="current.name || 'image'" />
         </div>
-        <button class="nav-btn" :disabled="!canNext" @click="next">›</button>
+        <button class="nav-btn" :disabled="!canNext" @click="next"><ChevronRight :size="18" /></button>
       </div>
 
       <div v-if="images.length > 1" class="thumbs">
@@ -97,7 +98,7 @@ async function copyCurrent() {
 .body-wrap { display: grid; grid-template-columns: 34px 1fr 34px; gap: 8px; align-items: center; }
 .body { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #000; min-height: 280px; display: grid; place-items: center; }
 .body img { max-width: 100%; max-height: 52vh; object-fit: contain; }
-.nav-btn { border: 0; border-radius: 6px; height: 38px; cursor: pointer; background: var(--bg-hover); color: var(--text-primary); font-size: 18px; }
+.nav-btn { border: 0; border-radius: 6px; height: 38px; width: 34px; cursor: pointer; background: var(--bg-hover); color: var(--text-primary); display: flex; align-items: center; justify-content: center; }
 .nav-btn:disabled { opacity: .35; cursor: not-allowed; }
 .thumbs { margin-top: 8px; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
 .thumb { border: 1px solid var(--border); background: var(--bg-surface); border-radius: 6px; padding: 0; width: 54px; height: 54px; overflow: hidden; cursor: pointer; flex: 0 0 auto; }

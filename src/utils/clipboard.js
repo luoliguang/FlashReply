@@ -43,12 +43,15 @@ async function fallbackToCopy(finalText) {
 }
 
 export async function insertFlow(answer, vars = {}, strategy = 'copy') {
+  const store = useAnswersStore()
   const finalText = fillVariables(answer.content || '', vars)
   const preload = window.preload
 
   // 置顶策略：不隐藏插件，仅复制，用户手动粘贴
   if (strategy === 'copy') {
-    return await fallbackToCopy(finalText)
+    const result = await fallbackToCopy(finalText)
+    store.incrementUseCount(answer._id)
+    return result
   }
 
   // 自动插入策略：先隐藏窗口，给目标输入框恢复焦点时间
@@ -58,11 +61,17 @@ export async function insertFlow(answer, vars = {}, strategy = 'copy') {
   // 官方 API：隐藏窗口并粘贴（再次尝试，提升命中率）
   if (typeof preload?.hideMainWindowPasteText === 'function') {
     const ok = preload.hideMainWindowPasteText(finalText)
-    if (ok) return { mode: 'insert', message: '已插入到当前窗口' }
+    if (ok) {
+      store.incrementUseCount(answer._id)
+      return { mode: 'insert', message: '已插入到当前窗口' }
+    }
 
     await sleep(140)
     const retryOk = preload.hideMainWindowPasteText(finalText)
-    if (retryOk) return { mode: 'insert', message: '已插入到当前窗口' }
+    if (retryOk) {
+      store.incrementUseCount(answer._id)
+      return { mode: 'insert', message: '已插入到当前窗口' }
+    }
   }
 
   // 兜底方案：复制 + 模拟粘贴热键
@@ -70,7 +79,10 @@ export async function insertFlow(answer, vars = {}, strategy = 'copy') {
   if (copied) {
     await sleep(120)
     const simulated = preload?.simulatePasteHotkey?.()
-    if (simulated) return { mode: 'insert', message: '已插入到当前窗口' }
+    if (simulated) {
+      store.incrementUseCount(answer._id)
+      return { mode: 'insert', message: '已插入到当前窗口' }
+    }
   }
 
   return {

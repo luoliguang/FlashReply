@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ArrowLeft, Plus } from 'lucide-vue-next'
 import { useAnswersStore } from '../stores/answers'
 import { useCategoriesStore } from '../stores/categories'
 import AnswerEditor from '../components/AnswerEditor.vue'
@@ -20,6 +21,19 @@ const batchCategoryId = ref('')
 const batchTagInput = ref('')
 const toast = ref({ show: false, text: '', type: 'success' })
 const adminSidebarWidth = ref(280)
+const pendingDeleteCategory = ref(null)
+const migrateTargetId = ref('')
+const LAST_MIGRATE_TARGET_KEY = 'quick-reply-last-migrate-target-v1'
+
+const pendingDeleteItems = computed(() =>
+  !pendingDeleteCategory.value ? [] : answersStore.list.filter((item) => item.categoryId === pendingDeleteCategory.value._id)
+)
+const pendingDeleteCount = computed(() => pendingDeleteItems.value.length)
+const pendingDeletePreview = computed(() => pendingDeleteItems.value.slice(0, 3).map((item) => item.title))
+const migrateTargets = computed(() =>
+  !pendingDeleteCategory.value ? [] : categoriesStore.list.filter((c) => c._id !== pendingDeleteCategory.value._id)
+)
+
 const importFileRef = ref(null)
 const importDialog = ref(false)
 const importStrategy = ref('preview')
@@ -146,26 +160,41 @@ function handleDropCategory(payload) {
   if (!result.ok) showToast(result.message, 'error')
 }
 
+function handlePromoteCategory(payload) {
+  const result = categoriesStore.promoteCategoryToTopLevel(payload.dragId)
+  if (!result.ok) { showToast(result.message, 'error'); return }
+  showToast('已升级为一级分类')
+}
+
 function removeCategory(cat) {
-  if (cat.name === '未分类') {
-    showToast('未分类不可删除', 'error')
-    return
-  }
+  pendingDeleteCategory.value = cat
+
+  let lastTarget = ''
+  try { lastTarget = localStorage.getItem(LAST_MIGRATE_TARGET_KEY) || '' } catch { /* ignore */ }
 
   const fallbackId = categoriesStore.getFallbackCategoryId()
-  if (!fallbackId || fallbackId === cat._id) {
-    showToast('没有可用目标分类', 'error')
+  const isValidLast = !!lastTarget && lastTarget !== cat._id && categoriesStore.list.some((c) => c._id === lastTarget)
+  migrateTargetId.value = isValidLast ? lastTarget : (fallbackId && fallbackId !== cat._id ? fallbackId : '')
+}
+
+function confirmRemoveCategory() {
+  const category = pendingDeleteCategory.value
+  if (!category) return
+  if (!migrateTargetId.value || migrateTargetId.value === category._id) {
+    showToast('请选择有效的迁移目标分类', 'error')
     return
   }
 
-  const affected = answersStore.moveAnswersToCategory(cat._id, fallbackId)
-  const result = categoriesStore.removeCategory(cat._id)
-  if (!result.ok) {
-    showToast(result.message, 'error')
-    return
-  }
+  const affected = answersStore.moveAnswersToCategory(category._id, migrateTargetId.value)
+  const result = categoriesStore.removeCategory(category._id)
+  if (!result.ok) { showToast(result.message, 'error'); return }
 
-  showToast(`已删除分类，并迁移 ${affected} 条回复`) 
+  if (filterCategoryId.value === category._id) filterCategoryId.value = 'all'
+
+  const targetName = categoriesStore.list.find((c) => c._id === migrateTargetId.value)?.name || '目标分类'
+  try { localStorage.setItem(LAST_MIGRATE_TARGET_KEY, migrateTargetId.value) } catch { /* ignore */ }
+  pendingDeleteCategory.value = null
+  showToast(`已删除分类，并迁移 ${affected} 条回复到「${targetName}」`)
 }
 
 function onDropAnswerToCategory(payload) {
@@ -249,6 +278,8 @@ function startResizeAdminSidebar(e) {
   const onUp = () => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
     try {
       localStorage.setItem('quick-reply-admin-sidebar-width-v1', String(adminSidebarWidth.value))
     } catch {
@@ -256,6 +287,8 @@ function startResizeAdminSidebar(e) {
     }
   }
 
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
 }
@@ -383,13 +416,13 @@ function closeImportDialog() {
 <template>
   <div class="admin-layout">
     <header class="top">
-      <button class="btn ghost back-btn" @click="router.push('/')"><span class="back-icon">←</span><span class="back-text">返回</span></button>
+      <button class="btn ghost back-btn" @click="router.push('/')"><ArrowLeft :size="15" /><span class="back-text">返回</span></button>
       <div class="title">管理回复</div>
       <div class="top-actions">
         <button class="btn ghost" @click="exportData">导出</button>
         <button class="btn ghost" @click="triggerImport">导入</button>
         <input ref="importFileRef" type="file" accept="application/json" hidden @change="onImportFileChange" />
-        <button class="btn create-btn" @click="newAnswer"><span class="create-icon">+</span><span class="create-text">新建答案</span></button>
+        <button class="btn create-btn" @click="newAnswer"><Plus :size="15" /><span class="create-text">新建答案</span></button>
       </div>
     </header>
 
@@ -406,6 +439,7 @@ function closeImportDialog() {
           @remove="removeCategory"
           @move="handleMoveCategory"
           @drop-category="handleDropCategory"
+          @promote-category="handlePromoteCategory"
           @drop-answer="onDropAnswerToCategory"
         />
         <div class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeAdminSidebar" />
@@ -458,6 +492,30 @@ function closeImportDialog() {
 
     <AnswerEditor :show="showEditor" :categories="categoriesStore.flattened" :model-value="editing || {}" @save="saveAnswer" @cancel="showEditor = false" />
 
+    <div v-if="pendingDeleteCategory" class="confirm-mask" @click.self="pendingDeleteCategory = null">
+      <div class="confirm-card">
+        <h3>确认删除分类</h3>
+        <p class="muted">
+          将删除「{{ pendingDeleteCategory.name }}」，并把
+          <strong>{{ pendingDeleteCount }}</strong> 条回复迁移到：
+        </p>
+        <div v-if="pendingDeletePreview.length" class="preview-box">
+          <div class="preview-title">受影响回复：</div>
+          <ul><li v-for="title in pendingDeletePreview" :key="title">{{ title }}</li></ul>
+          <div v-if="pendingDeleteCount > 3" class="muted">... 还有 {{ pendingDeleteCount - 3 }} 条</div>
+        </div>
+        <select v-model="migrateTargetId" class="search-select" style="width:100%;margin-bottom:10px">
+          <option v-for="target in migrateTargets" :key="target._id" :value="target._id">
+            {{ target.icon }} {{ target.name }}
+          </option>
+        </select>
+        <div class="confirm-actions">
+          <button class="btn danger" @click="confirmRemoveCategory">确认删除</button>
+          <button class="btn ghost" @click="pendingDeleteCategory = null">取消</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="importDialog" class="confirm-mask" @click="closeImportDialog">
       <div class="confirm-card" @click.stop>
         <h3>导入数据</h3>
@@ -489,13 +547,13 @@ function closeImportDialog() {
 .admin-layout { padding: 12px; height: 100vh; box-sizing: border-box; background: var(--bg-base); color: var(--text-primary); }
 .top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; margin-bottom: 10px; gap: 8px; }
 .top .title { justify-self: center; font-weight: 600; }
-.back-btn, .create-btn { width: fit-content; display: inline-flex; align-items: center; gap: 6px; }
+.back-btn, .create-btn { width: fit-content; display: inline-flex; align-items: center; gap: 5px; }
 .top-actions { display: inline-flex; gap: 6px; align-items: center; }
 .panel { display: grid; grid-template-columns: minmax(180px, var(--admin-sidebar-width, 280px)) 1fr; gap: 10px; height: calc(100% - 56px); min-height: 0; }
 .category-wrap { position: relative; min-height: 0; }
 .category-panel { height: 100%; }
 .resize-handle { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: col-resize; z-index: 5; }
-.resize-handle::after { content: ''; position: absolute; left: 5px; top: 0; width: 2px; height: 100%; background: transparent; }
+.resize-handle::after { content: ''; position: absolute; left: 5px; top: 0; width: 2px; height: 100%; background: transparent; transition: background 0.15s ease; }
 .resize-handle:hover::after { background: var(--accent); }
 .table-wrap { display: grid; grid-template-rows: auto auto 1fr; gap: 8px; min-height: 0; }
 .toolbar { display: grid; grid-template-columns: 1fr 220px; gap: 8px; }
@@ -512,7 +570,11 @@ function closeImportDialog() {
 .btn.ghost { background: var(--bg-hover); color: var(--text-primary); }
 .btn.danger { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 .confirm-mask { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.35); z-index: 30; }
-.confirm-card { width: min(520px, 92vw); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.confirm-card { width: min(480px, 92vw); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.confirm-card h3 { margin: 0 0 8px; }
+.preview-box { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); padding: 8px; margin-bottom: 8px; font-size: 12px; }
+.preview-title { color: var(--text-primary); margin-bottom: 4px; }
+.preview-box ul { margin: 0; padding-left: 16px; color: var(--text-secondary); }
 .muted { color: var(--text-secondary); font-size: 12px; }
 .stats { border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--bg-surface); margin: 8px 0; color: var(--text-secondary); font-size: 13px; display: grid; gap: 4px; }
 .strategy-group { display: grid; gap: 6px; margin-bottom: 10px; color: var(--text-primary); }

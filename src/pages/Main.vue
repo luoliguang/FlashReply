@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Menu, Settings } from 'lucide-vue-next'
 import SearchBar from '../components/SearchBar.vue'
 import CategorySidebar from '../components/CategorySidebar.vue'
 import AnswerList from '../components/AnswerList.vue'
@@ -179,6 +180,15 @@ function onDropCategory(payload) {
   }
 }
 
+function onPromoteCategory(payload) {
+  const result = categoriesStore.promoteCategoryToTopLevel(payload.dragId)
+  if (!result.ok) {
+    showToast(result.message, 'error')
+    return
+  }
+  showToast('已升级为一级分类')
+}
+
 function onRemoveCategory(category) {
   pendingDeleteCategory.value = category
 
@@ -295,6 +305,8 @@ function startResizeSidebar(e) {
   const onUp = () => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
     try {
       localStorage.setItem('quick-reply-main-sidebar-width-v1', String(sidebarWidth.value))
     } catch {
@@ -302,6 +314,8 @@ function startResizeSidebar(e) {
     }
   }
 
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
 }
@@ -382,11 +396,11 @@ async function onConfirmVars(values) {
           </button>
         </div>
         <button class="category-toggle" @click="sidebarDrawerOpen = true" title="分类">
-          <span class="btn-icon">☰</span>
+          <Menu :size="14" />
           <span class="btn-text">分类</span>
         </button>
         <button class="admin-btn" @click="router.push('/admin')" title="管理">
-          <span class="btn-icon">⚙</span>
+          <Settings :size="14" />
           <span class="btn-text">管理</span>
         </button>
       </div>
@@ -403,6 +417,7 @@ async function onConfirmVars(values) {
           @remove="onRemoveCategory"
           @move="onMoveCategory"
           @drop-category="onDropCategory"
+          @promote-category="onPromoteCategory"
         />
         <div class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeSidebar" />
       </div>
@@ -437,6 +452,7 @@ async function onConfirmVars(values) {
           @remove="onRemoveCategory"
           @move="onMoveCategory"
           @drop-category="onDropCategory"
+          @promote-category="onPromoteCategory"
         />
       </div>
     </div>

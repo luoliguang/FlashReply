@@ -192,7 +192,7 @@ function onSave() {
 <template>
   <div v-if="show" class="mask" @click.self="emit('cancel')">
     <div class="modal" tabindex="0" @keydown.esc.prevent="emit('cancel')">
-      <h3>新建模板</h3>
+      <h3>{{ props.modelValue?._id ? '编辑回复' : '新建回复' }}</h3>
 
       <div class="input-field" :class="{ 'has-content': !!form.title?.trim() }">
         <span class="field-label">标题</span>

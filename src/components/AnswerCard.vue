@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from 'vue'
+import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { getTagColor } from '../utils/tag-color'
 
 const props = defineProps({
@@ -8,6 +10,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['copy', 'insert'])
+
+const expanded = ref(false)
 
 function tagStyle(tag) {
   const palette = getTagColor(tag)
@@ -19,13 +23,17 @@ function tagStyle(tag) {
 </script>
 
 <template>
-  <div class="answer-card" :class="{ active }">
-    <div>
+  <div class="answer-card" :class="{ active, expanded }">
+    <div class="card-main">
       <div class="title">{{ props.answer.title }}</div>
       <div class="tags">
         <span v-for="tag in props.answer.tags || []" :key="tag" class="tag" :style="tagStyle(tag)">{{ tag }}</span>
       </div>
-      <div class="preview">{{ props.answer.content }}</div>
+      <div class="preview" :class="{ expanded }" @click="expanded = !expanded">{{ props.answer.content }}</div>
+      <button v-if="props.answer.content?.length > 80" class="expand-toggle" @click="expanded = !expanded">
+        <component :is="expanded ? ChevronUp : ChevronDown" :size="12" />
+        {{ expanded ? '收起' : '展开' }}
+      </button>
     </div>
     <div class="actions">
       <button class="btn-insert" @click="emit('insert', props.answer)">插入</button>
@@ -44,7 +52,7 @@ function tagStyle(tag) {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
-  align-items: center;
+  align-items: start;
 }
 .answer-card:hover {
   background: var(--bg-hover);
@@ -53,6 +61,9 @@ function tagStyle(tag) {
   background: var(--accent-soft);
   border-left: 2px solid var(--accent);
   padding-left: 12px;
+}
+.card-main {
+  min-width: 0;
 }
 .title {
   font-size: 14px;
@@ -79,10 +90,36 @@ function tagStyle(tag) {
   color: var(--text-secondary);
   font-size: 12px;
   margin-top: 2px;
+  cursor: pointer;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.preview.expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.1s;
+}
+.expand-toggle:hover {
+  color: var(--accent);
 }
 .actions {
   display: inline-flex;
+  flex-direction: column;
   gap: 6px;
+  padding-top: 2px;
 }
 .btn-insert,
 .btn-copy {
@@ -114,11 +151,7 @@ function tagStyle(tag) {
   animation: flash-success 0.4s ease;
 }
 @keyframes flash-success {
-  0% {
-    transform: scale(1.05);
-  }
-  100% {
-    transform: scale(1);
-  }
+  0% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 </style>

@@ -81,7 +81,13 @@ export const useAnswersStore = defineStore('answers', {
     },
     incrementUseCount(id) {
       AnswerDB.incrementUseCount(id)
-      this.reload()
+      // Patch in-memory only — avoids rebuilding the Fuse.js index on every copy
+      const item = this.list.find((a) => a._id === id)
+      if (item) {
+        item.useCount = (item.useCount || 0) + 1
+        const filteredItem = this.filtered.find((a) => a._id === id)
+        if (filteredItem) filteredItem.useCount = item.useCount
+      }
     },
     bulkUpdateCategory(ids = [], categoryId = '') {
       if (!categoryId) return 0
