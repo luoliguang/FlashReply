@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { MoreHorizontal, ChevronUp, ChevronDown, Plus, Pencil, Trash2, Check, X } from 'lucide-vue-next'
+import { MoreHorizontal, ChevronUp, ChevronDown, ChevronRight, Plus, Pencil, Trash2, Check, X } from 'lucide-vue-next'
 
 const EMOJI_LIST = [
   '📁', '📂', '🗂️', '📋', '📌', '📎',
@@ -34,6 +34,20 @@ const expandedId = ref('')
 const iconPickerOpenId = ref('')
 const draggingId = ref('')
 const dropTarget = ref({ id: '', mode: '' })
+
+const COLLAPSE_KEY = 'quick-reply-collapsed-cats-v1'
+function loadCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')) } catch { return new Set() }
+}
+const collapsedIds = ref(loadCollapsed())
+
+function toggleCollapse(id) {
+  const s = new Set(collapsedIds.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  collapsedIds.value = s
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...s])) } catch { /* ignore */ }
+}
+function isCollapsed(id) { return collapsedIds.value.has(id) }
 
 const topLevelCategories = computed(() => props.categories.filter((cat) => !cat.parentId))
 
@@ -252,6 +266,14 @@ function dropClass(catId, mode) {
           @drop="onDrop(cat, 'inside', $event)"
           @click="selectCategory(cat)"
         >
+          <button
+            v-if="childrenOf(cat._id).length"
+            class="btn-collapse"
+            :class="{ collapsed: isCollapsed(cat._id) }"
+            @click.stop="toggleCollapse(cat._id)"
+          >
+            <ChevronDown :size="11" />
+          </button>
           <span class="cat-icon" :title="'点击换图标'" @click.stop="toggleIconPicker(cat._id)">{{ cat.icon }}</span>
           <span class="category-text" :title="cat.name">{{ cat.name }}</span>
           <div class="category-actions-inline">
@@ -290,7 +312,8 @@ function dropClass(catId, mode) {
         </transition>
 
         <!-- 子分类列表 -->
-        <div v-if="childrenOf(cat._id).length || creatingParentId === cat._id" class="children">
+        <transition name="collapse">
+        <div v-show="(childrenOf(cat._id).length || creatingParentId === cat._id) && !isCollapsed(cat._id)" class="children">
           <div v-for="sub in childrenOf(cat._id)" :key="sub._id" class="child-row">
             <!-- 编辑模式 -->
             <template v-if="editingId === sub._id">
@@ -371,6 +394,7 @@ function dropClass(catId, mode) {
             </div>
           </div>
         </div>
+        </transition>
       </template>
     </div>
     </transition-group>
@@ -697,6 +721,38 @@ function dropClass(catId, mode) {
 .menu-slide-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* ── 折叠按钮 ───────────────────────────────────────────────── */
+.btn-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  transition: transform 0.18s ease, color 0.12s;
+}
+.btn-collapse:hover { color: var(--text-primary); }
+.btn-collapse.collapsed { transform: rotate(-90deg); }
+
+/* ── 子分类折叠过渡 ──────────────────────────────────────────── */
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: max-height 0.22s ease, opacity 0.18s ease;
+  overflow: hidden;
+  max-height: 600px;
+}
+.collapse-enter-from,
+.collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
 }
 
 /* ── category list item removal animation ───────────────────── */
