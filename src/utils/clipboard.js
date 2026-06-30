@@ -36,15 +36,40 @@ export async function copyImage(dataUrl) {
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
 }
 
+function toHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+}
+
+async function copyRichText(text) {
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([toHtml(text)], { type: 'text/html' })
+      })
+    ])
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function copyFlow(answer, vars = {}) {
   const store = useAnswersStore()
   const finalText = fillVariables(answer.content || '', vars)
 
-  if (window.utools?.copyText) {
-    const ok = window.utools.copyText(finalText)
-    if (!ok) throw new Error('复制失败')
-  } else {
-    await navigator.clipboard.writeText(finalText)
+  const rich = await copyRichText(finalText)
+  if (!rich) {
+    if (window.utools?.copyText) {
+      const ok = window.utools.copyText(finalText)
+      if (!ok) throw new Error('复制失败')
+    } else {
+      await navigator.clipboard.writeText(finalText)
+    }
   }
 
   store.incrementUseCount(answer._id)
@@ -52,6 +77,9 @@ export async function copyFlow(answer, vars = {}) {
 }
 
 async function fallbackToCopy(finalText) {
+  const rich = await copyRichText(finalText)
+  if (rich) return { mode: 'copy', message: '已复制到剪贴板，请在目标输入框按 Ctrl+V' }
+
   if (window.utools?.copyText) {
     const copied = window.utools.copyText(finalText)
     if (copied) return { mode: 'copy', message: '已复制到剪贴板，请在目标输入框按 Ctrl+V' }

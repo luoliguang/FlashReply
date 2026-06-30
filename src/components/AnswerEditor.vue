@@ -168,6 +168,8 @@ function onDragLeave() {
   dragOver.value = false
 }
 
+function wrapVar(v) { return '{{' + v + '}}' }
+
 function removeImage(id) {
   form.value.images = form.value.images.filter((img) => img.id !== id)
 }
@@ -193,22 +195,33 @@ function onSave() {
 <template>
   <div v-if="show" class="mask" @click.self="emit('cancel')">
     <div class="modal" tabindex="0" @keydown.esc.prevent="emit('cancel')">
-      <h3>{{ props.modelValue?._id ? '编辑回复' : '新建回复' }}</h3>
 
-      <div class="input-field" :class="{ 'has-content': !!form.title?.trim() }">
+      <!-- 标题栏 -->
+      <div class="modal-header">
+        <span class="modal-title">{{ props.modelValue?._id ? '编辑回复' : '新建回复' }}</span>
+        <button class="close-btn" @click="emit('cancel')">×</button>
+      </div>
+
+      <!-- 标题字段 -->
+      <div class="input-field field-first" :class="{ 'has-content': !!form.title?.trim() }">
         <span class="field-label">标题</span>
         <input v-model="form.title" class="input floating" />
       </div>
 
+      <!-- 分类 -->
       <div v-if="!props.categories.length" class="no-category-tip">
         尚未创建任何分类，请先前往管理界面添加分类后再创建回复。
       </div>
-      <select v-else v-model="form.categoryId" class="input">
-        <option v-for="cat in props.categories" :key="cat._id" :value="cat._id">
-          {{ cat.level === 2 ? '└ ' : '' }}{{ cat.icon }} {{ cat.name }}
-        </option>
-      </select>
+      <div v-else class="select-field">
+        <span class="select-label">分类</span>
+        <select v-model="form.categoryId" class="input select-input">
+          <option v-for="cat in props.categories" :key="cat._id" :value="cat._id">
+            {{ cat.level === 2 ? '└ ' : '' }}{{ cat.icon }} {{ cat.name }}
+          </option>
+        </select>
+      </div>
 
+      <!-- 内容编辑器 -->
       <div class="editor-field" :class="{ 'has-content': !!form.content?.trim() }">
         <span class="field-label">内容</span>
         <div class="editor-wrap">
@@ -216,129 +229,324 @@ function onSave() {
         </div>
       </div>
 
-      <div class="vars">
-        已识别变量：
-        <span v-for="v in parsedVars" :key="v" class="tag">{{ v }}</span>
+      <!-- 变量识别 -->
+      <div class="vars-row">
+        <span class="vars-label">已识别变量</span>
+        <span v-if="!parsedVars.length" class="vars-empty">无</span>
+        <span v-for="v in parsedVars" :key="v" class="var-chip">{{ wrapVar(v) }}</span>
       </div>
 
-      <div class="input-field tag-field" :class="{ 'has-content': !!form.tags?.length }">
-        <span class="field-label">标签（回车添加）</span>
-        <input class="input floating tag-floating-input" @keydown="addTag" />
-      </div>
-      <div class="tags-chips">
-        <span v-for="tag in form.tags" :key="tag" class="tag tag-item" @click="removeTag(tag)">{{ tag }} ×</span>
+      <!-- 标签 -->
+      <div class="tags-section">
+        <div class="tags-chips">
+          <span v-for="tag in form.tags" :key="tag" class="tag-chip" @click="removeTag(tag)">
+            {{ tag }}<span class="tag-remove">×</span>
+          </span>
+        </div>
+        <input class="input tag-input" placeholder="输入标签，回车添加" @keydown="addTag" />
       </div>
 
+      <!-- 图片上传 -->
       <div class="upload" :class="{ over: dragOver }" @drop="onDrop" @dragover="onDragOver" @dragleave="onDragLeave">
-        <div>拖拽图片到这里，或</div>
+        <span class="upload-icon">🖼</span>
+        <span>拖拽图片到此，或</span>
         <label class="pick">
-          选择图片
+          点击选择
           <input type="file" accept="image/*" multiple hidden @change="onImageSelect" />
         </label>
       </div>
 
-      <div class="img-list">
+      <div v-if="form.images.length" class="img-list">
         <div v-for="img in form.images" :key="img.id" class="img-item">
           <img :src="img.dataUrl" :alt="img.name" />
-          <button class="x" @click="removeImage(img.id)">×</button>
+          <button class="img-remove" @click="removeImage(img.id)">×</button>
         </div>
       </div>
 
-      <div v-if="error" class="error">{{ error }}</div>
-
-      <div class="actions">
-        <button class="btn" @click="onSave">保存</button>
-        <button class="btn ghost" @click="emit('cancel')">取消</button>
+      <!-- 错误提示 + 操作按钮 -->
+      <div class="footer">
+        <span class="error">{{ error }}</span>
+        <div class="actions">
+          <button class="btn ghost" @click="emit('cancel')">取消</button>
+          <button class="btn primary" @click="onSave">保存</button>
+        </div>
       </div>
+
     </div>
   </div>
 </template>
 
 <style scoped>
-.mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; }
-.modal { width: min(760px, 92vw); max-height: 88vh; overflow: auto; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+/* ── 遮罩 & 弹窗容器 ─────────────────────────────────── */
+.mask {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(3px);
+  display: grid; place-items: center;
+  z-index: 100;
+}
+.modal {
+  width: min(680px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 
+/* ── 标题栏 ──────────────────────────────────────────── */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.close-btn {
+  width: 28px; height: 28px;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+.close-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── 表单主体 ─────────────────────────────────────────── */
+.modal > .input-field { padding: 0 24px; }
+.modal > .input-field.field-first { padding-top: 20px; }
+.modal > .editor-field { padding: 0 24px; }
+
+/* ── 浮动 Label 字段 ─────────────────────────────────── */
 .input-field,
 .editor-field {
   position: relative;
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
-
 .field-label {
   position: absolute;
-  left: 12px;
-  top: 18px;
-  font-size: 14px;
-  line-height: 1;
+  left: 36px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
   color: var(--text-muted);
   pointer-events: none;
-  transform-origin: left top;
-  transition: top 0.2s ease, transform 0.2s ease, color 0.2s ease, background-color 0.2s ease, padding 0.2s ease;
+  transform-origin: left center;
+  transition: top 0.18s ease, transform 0.18s ease, color 0.18s ease, background 0.18s ease, padding 0.18s ease;
   z-index: 1;
 }
+.editor-field .field-label {
+  top: 22px;
+  transform: none;
+}
+.input-field:focus-within .field-label,
+.input-field.has-content .field-label {
+  top: 10px;
+  transform: scale(0.82);
+  color: var(--accent);
+  background: var(--bg-elevated);
+  padding: 0 4px;
+  left: 32px;
+}
+.editor-field:focus-within .field-label,
+.editor-field.has-content .field-label {
+  top: -8px;
+  transform: scale(0.82);
+  color: var(--accent);
+  background: var(--bg-elevated);
+  padding: 0 4px;
+  left: 32px;
+}
 
+/* ── 输入框 & 编辑区通用边框 ─────────────────────────── */
 .input,
 .editor-wrap {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--bg-surface);
   color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-
 .input {
-  margin-bottom: 8px;
-  padding: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  outline: none;
 }
-
-.input.floating {
-  margin-bottom: 0;
-  padding: 26px 12px 10px;
-}
-
-.input-field:focus-within .field-label,
-.input-field.has-content .field-label,
-.editor-field:focus-within .field-label,
-.editor-field.has-content .field-label {
-  top: -8px;
-  transform: scale(0.86);
-  color: #8fc3ff;
-  background: var(--bg-elevated);
-  padding: 0 6px;
-}
+.input.floating { padding: 24px 12px 8px; }
 
 .input-field:focus-within .input,
 .editor-wrap:focus-within {
-  border-color: #7bb6ff;
-  box-shadow: 0 0 0 1px rgba(123, 182, 255, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* ── 分类选择 ─────────────────────────────────────────── */
+.select-field {
+  position: relative;
+  margin-bottom: 14px;
+  padding: 0 24px;
+}
+.select-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+  padding-left: 2px;
+  letter-spacing: 0.02em;
+}
+.select-input {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.select-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+
+/* ── 富文本编辑器 ─────────────────────────────────────── */
 :deep(.editor-content) {
-  min-height: 140px;
-  padding: 26px 12px 12px;
+  min-height: 160px;
+  padding: 28px 12px 12px;
   color: var(--text-primary);
   outline: none;
   white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.65;
+  font-size: 13px;
 }
 :deep(.editor-content p) { margin: 0; }
-:deep(.editor-content p + p) { margin-top: 0; }
+:deep(.editor-content p + p) { margin-top: 2px; }
 
-.vars { color: var(--text-secondary); margin-bottom: 8px; }
-.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; font-size: 12px; }
-.tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.tag-item { cursor: pointer; }
-.tag-input { flex: 1; min-width: 140px; padding: 6px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); }
-.upload { border: 1px dashed var(--border); border-radius: 8px; padding: 14px; text-align: center; color: var(--text-secondary); margin-bottom: 8px; }
+/* ── 变量识别 ─────────────────────────────────────────── */
+.vars-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 24px;
+  margin-bottom: 14px;
+  min-height: 24px;
+}
+.vars-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+.vars-empty { font-size: 12px; color: var(--text-muted); }
+.var-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-family: monospace;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* ── 标签 ─────────────────────────────────────────────── */
+.tags-section {
+  padding: 0 24px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tags-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: border-color 0.12s, color 0.12s;
+}
+.tag-chip:hover { border-color: #f87171; color: #f87171; }
+.tag-remove { font-size: 11px; opacity: 0.6; }
+.tag-input {
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+/* ── 图片上传 ─────────────────────────────────────────── */
+.upload {
+  margin: 0 24px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: default;
+}
 .upload.over { border-color: var(--accent); background: var(--accent-soft); }
-.pick { display: inline-block; margin-top: 6px; color: var(--accent); cursor: pointer; }
-.img-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; margin-bottom: 8px; }
-.img-item { position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; height: 88px; }
+.upload-icon { font-size: 16px; line-height: 1; }
+.pick {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+.pick:hover { text-decoration: underline; }
+
+/* ── 图片列表 ─────────────────────────────────────────── */
+.img-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+  margin: 0 24px 14px;
+}
+.img-item {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  height: 80px;
+}
 .img-item img { width: 100%; height: 100%; object-fit: cover; }
-.x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: 0; border-radius: 50%; cursor: pointer; background: rgba(0,0,0,.6); color: white; }
+.img-remove {
+  position: absolute; top: 3px; right: 3px;
+  width: 18px; height: 18px;
+  border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 13px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ── 提示 & 底部操作栏 ────────────────────────────────── */
 .no-category-tip {
-  margin-bottom: 8px;
+  margin: 0 24px 14px;
   padding: 10px 12px;
   border: 1px solid rgba(251, 191, 36, 0.3);
   border-radius: 6px;
@@ -347,8 +555,33 @@ function onSave() {
   font-size: 12px;
   line-height: 1.6;
 }
-.error { color: #f87171; margin-bottom: 8px; }
-.actions { display: flex; gap: 8px; }
-.btn { padding: 6px 10px; border: 0; border-radius: 4px; background: var(--accent); color: white; cursor: pointer; }
-.btn.ghost { background: var(--bg-hover); color: var(--text-primary); }
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  flex-shrink: 0;
+  gap: 12px;
+}
+.error { color: #f87171; font-size: 12px; flex: 1; }
+.actions { display: flex; gap: 8px; flex-shrink: 0; }
+.btn {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-hover, #2563eb); }
+.btn.ghost {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn.ghost:hover { color: var(--text-primary); }
 </style>
