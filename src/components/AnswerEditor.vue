@@ -193,6 +193,7 @@ function onSave() {
 </script>
 
 <template>
+  <Teleport to="body">
   <div v-if="show" class="mask" @click.self="emit('cancel')">
     <div class="modal" tabindex="0" @keydown.esc.prevent="emit('cancel')">
 
@@ -274,6 +275,7 @@ function onSave() {
 
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

@@ -691,6 +691,7 @@ function closeImportDialog() {
 
     <AnswerEditor :show="showEditor" :categories="categoriesStore.flattened" :model-value="editing || {}" @save="saveAnswer" @cancel="showEditor = false" />
 
+    <Teleport to="body">
     <div v-if="pendingDeleteCategory" class="confirm-mask" @click.self="pendingDeleteCategory = null">
       <div class="confirm-card">
         <h3>确认删除分类</h3>
@@ -724,7 +725,9 @@ function closeImportDialog() {
         </div>
       </div>
     </div>
+    </Teleport>
 
+    <Teleport to="body">
     <div v-if="importDialog" class="confirm-mask" @click="closeImportDialog">
       <div class="confirm-card" @click.stop>
         <h3>导入数据</h3>
@@ -747,6 +750,7 @@ function closeImportDialog() {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <transition name="fade"><div v-if="toast.show" class="toast" :class="{ error: toast.type === 'error' }">{{ toast.text }}</div></transition>
   </div>

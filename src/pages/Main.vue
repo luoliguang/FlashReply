@@ -473,6 +473,7 @@ async function onConfirmVars(values) {
       </AnswerList>
     </div>
 
+    <Teleport to="body">
     <div v-if="sidebarDrawerOpen" class="drawer-mask" @click="sidebarDrawerOpen = false">
       <div class="drawer-panel" @click.stop>
         <div class="drawer-head">
@@ -494,6 +495,7 @@ async function onConfirmVars(values) {
         />
       </div>
     </div>
+    </Teleport>
 
     <VarFillModal
       :show="showVarModal"
@@ -509,6 +511,7 @@ async function onConfirmVars(values) {
       @close="showCopyAssistant = false"
     />
 
+    <Teleport to="body">
     <div v-if="pendingDeleteCategory" class="confirm-mask">
       <div class="confirm-card">
         <h3>确认删除分类</h3>
@@ -543,6 +546,7 @@ async function onConfirmVars(values) {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <transition name="fade">
       <div v-if="toast.show" class="toast" :class="{ error: toast.type === 'error' }">{{ toast.text }}</div>
