@@ -338,9 +338,15 @@ function batchDelete() {
   showToast(`已批量删除 ${removed} 条回复`)
 }
 
+function duplicateOne(id) {
+  answersStore.duplicateAnswers([id])
+  showToast('已复制为副本')
+}
+
 function batchDuplicate() {
   if (!selectedIds.value.length) return showToast('请先选择要处理的回复', 'error')
   const count = answersStore.duplicateAnswers(selectedIds.value)
+  selectedIds.value = []
   showToast(`已复制 ${count} 条回复为副本`)
 }
 
@@ -628,6 +634,7 @@ function closeImportDialog() {
               <!-- 操作 -->
               <div class="col-ops ops">
                 <button class="btn ghost sm" @click="editAnswer(item)">编辑</button>
+                <button class="btn ghost sm" @click="duplicateOne(item._id)">复制</button>
                 <button
                   class="btn sm"
                   :class="pendingDeleteId === item._id ? 'danger-confirm' : 'danger'"
