@@ -9,9 +9,15 @@ const props = defineProps({
   copied: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['copy', 'insert'])
+const emit = defineEmits(['copy', 'insert', 'drag-to-category'])
 
 const expanded = ref(false)
+
+function onDragStart(e) {
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('application/x-quick-reply-drag-type', 'answer')
+  e.dataTransfer.setData('application/x-quick-reply-answer-id', props.answer._id)
+}
 
 function tagStyle(tag) {
   const palette = getTagColor(tag)
@@ -23,7 +29,7 @@ function tagStyle(tag) {
 </script>
 
 <template>
-  <div class="answer-card" :class="{ active, expanded }">
+  <div class="answer-card" :class="{ active, expanded }" draggable="true" @dragstart="onDragStart">
     <div class="card-main">
       <div class="title">{{ props.answer.title }}</div>
       <div class="tags">

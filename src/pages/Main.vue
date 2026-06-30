@@ -213,6 +213,16 @@ function onPromoteCategory(payload) {
   showToast('已升级为一级分类')
 }
 
+function onDropAnswerToCategory(payload) {
+  const result = answersStore.moveAnswerToCategory(payload.answerId, payload.targetCategoryId)
+  if (!result.ok) {
+    showToast(result.message, 'error')
+    return
+  }
+  categoriesStore.setCurrent(payload.targetCategoryId)
+  showToast('已移动到目标分类')
+}
+
 function onRemoveCategory(category) {
   pendingDeleteCategory.value = category
 
@@ -435,6 +445,7 @@ async function onConfirmVars(values) {
         <CategorySidebar class="category-panel"
           :categories="categoriesStore.list"
           :current-id="categoriesStore.currentId"
+          :enable-drop-answer="true"
           @change="categoriesStore.setCurrent"
           @add="onAddCategory"
           @rename="onRenameCategory"
@@ -442,6 +453,7 @@ async function onConfirmVars(values) {
           @move="onMoveCategory"
           @drop-category="onDropCategory"
           @promote-category="onPromoteCategory"
+          @drop-answer="onDropAnswerToCategory"
         />
         <div class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeSidebar" />
       </div>
@@ -470,6 +482,7 @@ async function onConfirmVars(values) {
         <CategorySidebar
           :categories="categoriesStore.list"
           :current-id="categoriesStore.currentId"
+          :enable-drop-answer="true"
           @change="(id) => { categoriesStore.setCurrent(id); sidebarDrawerOpen = false }"
           @add="onAddCategory"
           @rename="onRenameCategory"
@@ -477,6 +490,7 @@ async function onConfirmVars(values) {
           @move="onMoveCategory"
           @drop-category="onDropCategory"
           @promote-category="onPromoteCategory"
+          @drop-answer="onDropAnswerToCategory"
         />
       </div>
     </div>

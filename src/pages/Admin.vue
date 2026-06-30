@@ -271,7 +271,8 @@ function onDropAnswerToCategory(payload) {
     showToast(result.message, 'error')
     return
   }
-  showToast('已拖拽移动到目标分类')
+  filterCategoryId.value = payload.targetCategoryId
+  showToast('已移动到目标分类')
 }
 
 function toggleOne(id, checked) {
