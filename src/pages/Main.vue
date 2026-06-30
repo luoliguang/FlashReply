@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Menu, Settings, HelpCircle } from 'lucide-vue-next'
+import { Menu, Settings, HelpCircle, ChevronsLeft, ChevronsRight } from 'lucide-vue-next'
 import SearchBar from '../components/SearchBar.vue'
 import CategorySidebar from '../components/CategorySidebar.vue'
 import AnswerList from '../components/AnswerList.vue'
@@ -32,6 +32,7 @@ const migrateTargetId = ref('')
 const sidebarDrawerOpen = ref(false)
 const insertStrategy = ref(localStorage.getItem('quick-reply-insert-strategy-v1') || 'copy')
 const sidebarWidth = ref(220)
+const sidebarCollapsed = ref(false)
 const searchBarRef = ref(null)
 
 watch(() => answersStore.enterSignal, () => {
@@ -61,6 +62,12 @@ onMounted(() => {
   try {
     const savedWidth = Number(localStorage.getItem('quick-reply-main-sidebar-width-v1') || 220)
     sidebarWidth.value = Number.isFinite(savedWidth) ? Math.min(360, Math.max(180, savedWidth)) : 220
+  } catch {
+    // ignore storage errors
+  }
+
+  try {
+    sidebarCollapsed.value = localStorage.getItem('quick-reply-main-sidebar-collapsed-v1') === '1'
   } catch {
     // ignore storage errors
   }
@@ -365,6 +372,15 @@ function startResizeSidebar(e) {
   window.addEventListener('mouseup', onUp)
 }
 
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  try {
+    localStorage.setItem('quick-reply-main-sidebar-collapsed-v1', sidebarCollapsed.value ? '1' : '0')
+  } catch {
+    // ignore storage errors
+  }
+}
+
 async function onEnter() {
   const current = list.value[activeIndex.value]
   if (!current) return
@@ -440,9 +456,12 @@ async function onConfirmVars(values) {
       </div>
     </div>
 
-    <div class="body" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
+    <div class="body" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
       <div id="tour-categories" class="sidebar-wrap sidebar-desktop">
-        <CategorySidebar class="category-panel"
+        <button v-if="sidebarCollapsed" class="btn-sidebar-expand" title="展开侧栏" @click="toggleSidebar">
+          <ChevronsRight :size="13" />
+        </button>
+        <CategorySidebar v-show="!sidebarCollapsed" class="category-panel"
           :categories="categoriesStore.list"
           :current-id="categoriesStore.currentId"
           :enable-drop-answer="true"
@@ -454,8 +473,14 @@ async function onConfirmVars(values) {
           @drop-category="onDropCategory"
           @promote-category="onPromoteCategory"
           @drop-answer="onDropAnswerToCategory"
-        />
-        <div class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeSidebar" />
+        >
+          <template #collapse-btn>
+            <button class="btn-sidebar-toggle" title="收起侧栏" @click="toggleSidebar">
+              <ChevronsLeft :size="12" />
+            </button>
+          </template>
+        </CategorySidebar>
+        <div v-show="!sidebarCollapsed" class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeSidebar" />
       </div>
 
       <AnswerList
@@ -666,14 +691,56 @@ async function onConfirmVars(values) {
   gap: 10px;
   height: calc(100% - 54px);
   min-height: 0;
+  transition: grid-template-columns 0.2s ease;
+}
+.body.sidebar-collapsed {
+  grid-template-columns: 28px 1fr;
+  gap: 4px;
 }
 .sidebar-wrap {
   position: relative;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 .sidebar-desktop {
   display: block;
+}
+.btn-sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.btn-sidebar-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.btn-sidebar-expand {
+  position: absolute;
+  top: 4px;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.btn-sidebar-expand:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 .category-panel {
   height: 100%;

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Plus, GripVertical, ChevronRight } from 'lucide-vue-next'
+import { ArrowLeft, Plus, GripVertical, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-vue-next'
 import { getTagColor } from '../utils/tag-color'
 import { useAnswersStore } from '../stores/answers'
 import { useCategoriesStore } from '../stores/categories'
@@ -22,6 +22,7 @@ const batchCategoryId = ref('')
 const batchTagInput = ref('')
 const toast = ref({ show: false, text: '', type: 'success' })
 const adminSidebarWidth = ref(280)
+const adminSidebarCollapsed = ref(false)
 const pendingDeleteCategory = ref(null)
 const migrateTargetId = ref('')
 const LAST_MIGRATE_TARGET_KEY = 'quick-reply-last-migrate-target-v1'
@@ -127,6 +128,12 @@ onMounted(() => {
   try {
     const saved = Number(localStorage.getItem('quick-reply-admin-sidebar-width-v1') || 280)
     adminSidebarWidth.value = Number.isFinite(saved) ? Math.min(420, Math.max(180, saved)) : 280
+  } catch {
+    // ignore
+  }
+
+  try {
+    adminSidebarCollapsed.value = localStorage.getItem('quick-reply-admin-sidebar-collapsed-v1') === '1'
   } catch {
     // ignore
   }
@@ -500,6 +507,15 @@ function applyImport() {
 function closeImportDialog() {
   importDialog.value = false
 }
+
+function toggleAdminSidebar() {
+  adminSidebarCollapsed.value = !adminSidebarCollapsed.value
+  try {
+    localStorage.setItem('quick-reply-admin-sidebar-collapsed-v1', adminSidebarCollapsed.value ? '1' : '0')
+  } catch {
+    // ignore
+  }
+}
 </script>
 
 <template>
@@ -515,9 +531,13 @@ function closeImportDialog() {
       </div>
     </header>
 
-    <div class="panel" :style="{ '--admin-sidebar-width': `${adminSidebarWidth}px` }">
+    <div class="panel" :class="{ 'sidebar-collapsed': adminSidebarCollapsed }" :style="{ '--admin-sidebar-width': `${adminSidebarWidth}px` }">
       <div class="category-wrap">
+        <button v-if="adminSidebarCollapsed" class="btn-sidebar-expand" title="展开侧栏" @click="toggleAdminSidebar">
+          <ChevronsRight :size="13" />
+        </button>
         <CategorySidebar
+          v-show="!adminSidebarCollapsed"
           class="category-panel"
           :categories="categoriesStore.list"
           :current-id="filterCategoryId"
@@ -530,8 +550,14 @@ function closeImportDialog() {
           @drop-category="handleDropCategory"
           @promote-category="handlePromoteCategory"
           @drop-answer="onDropAnswerToCategory"
-        />
-        <div class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeAdminSidebar" />
+        >
+          <template #collapse-btn>
+            <button class="btn-sidebar-toggle" title="收起侧栏" @click="toggleAdminSidebar">
+              <ChevronsLeft :size="12" />
+            </button>
+          </template>
+        </CategorySidebar>
+        <div v-show="!adminSidebarCollapsed" class="resize-handle" title="拖动调整侧栏宽度" @mousedown.prevent="startResizeAdminSidebar" />
       </div>
 
       <section class="table-wrap">
@@ -804,8 +830,49 @@ function closeImportDialog() {
   gap: 10px;
   height: calc(100% - 56px);
   min-height: 0;
+  transition: grid-template-columns 0.2s ease;
 }
-.category-wrap { position: relative; min-height: 0; }
+.panel.sidebar-collapsed {
+  grid-template-columns: 28px 1fr;
+  gap: 4px;
+}
+.category-wrap { position: relative; min-height: 0; overflow: hidden; }
+.btn-sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.btn-sidebar-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.btn-sidebar-expand {
+  position: absolute;
+  top: 4px;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.btn-sidebar-expand:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 .category-panel { height: 100%; }
 .resize-handle {
   position: absolute; top: 0; right: -6px;

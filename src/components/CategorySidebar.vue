@@ -213,9 +213,12 @@ function dropClass(catId, mode) {
   <aside class="sidebar" @click="iconPickerOpenId = ''">
     <div class="sidebar-head">
       <span>分类</span>
-      <button class="btn-add" title="新建一级分类" @click="openCreate('')">
-        <Plus :size="12" />一级
-      </button>
+      <div class="head-right">
+        <button class="btn-add" title="新建一级分类" @click="openCreate('')">
+          <Plus :size="12" />一级
+        </button>
+        <slot name="collapse-btn" />
+      </div>
     </div>
 
     <!-- "全部" 入口 -->
@@ -450,6 +453,11 @@ function dropClass(catId, mode) {
   color: var(--text-secondary);
   font-size: 12px;
   flex-shrink: 0;
+}
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .btn-add,
